@@ -1,33 +1,31 @@
 """
 Specific to this implementation: CNN network and Reward Shaping Annealing as per Overcooked paper.
 """
-import os
+
 import copy
-import jax
-import jax.numpy as jnp
-import numpy as np
-from functools import partial
+import os
 from typing import Any
 
-import flax
 import chex
-import optax
-import flax.linen as nn
-from flax.training.train_state import TrainState
-import hydra
-from omegaconf import OmegaConf
 import flashbax as fbx
-import wandb
+import flax.linen as nn
+import hydra
+import jax
+import jax.numpy as jnp
+import optax
+from flax.training.train_state import TrainState
+from omegaconf import OmegaConf
 
+import wandb
 from jaxmarl import make
+from jaxmarl.environments.overcooked import overcooked_layouts
 from jaxmarl.environments.smax import map_name_to_scenario
 from jaxmarl.wrappers.baselines import (
-    SMAXLogWrapper,
-    MPELogWrapper,
-    LogWrapper,
     CTRolloutManager,
+    LogWrapper,
+    MPELogWrapper,
+    SMAXLogWrapper,
 )
-from jaxmarl.environments.overcooked import overcooked_layouts
 
 
 class CNN(nn.Module):
@@ -56,9 +54,7 @@ class CNN(nn.Module):
         x = activation(x)
         x = x.reshape((x.shape[0], -1))  # Flatten
 
-        x = nn.Dense(
-            features=64
-        )(x)
+        x = nn.Dense(features=64)(x)
         x = activation(x)
 
         return x
@@ -67,11 +63,20 @@ class CNN(nn.Module):
 class QNetwork(nn.Module):
     action_dim: int
     hidden_size: int = 64
+    activation: str = "relu"
 
     @nn.compact
     def __call__(self, x: jnp.ndarray):
+        if self.activation == "relu":
+            activation = nn.relu
+        else:
+            activation = nn.tanh
+
         embedding = CNN()(x)
+        # no activation here as a nonlinearity has already
+        # been applied to the embedding
         x = nn.Dense(self.hidden_size)(embedding)
+        x = activation(x)
         x = nn.Dense(self.action_dim)(x)
         return x
 
@@ -167,7 +172,7 @@ def make_train(config, env):
         )
 
         def create_agent(rng):
-            init_x = jnp.zeros((1, *env.observation_space().shape))
+            init_x = jnp.zeros((1, *env.observation_space("agent_0").shape))
             network_params = network.init(rng, init_x)
 
             lr_scheduler = optax.linear_schedule(
@@ -310,9 +315,7 @@ def make_train(config, env):
 
                 vdn_target = minibatch.first.rewards["__all__"] + (
                     1 - minibatch.first.dones["__all__"]
-                ) * config["GAMMA"] * jnp.sum(
-                    q_next_target, axis=0
-                )  # sum over agents
+                ) * config["GAMMA"] * jnp.sum(q_next_target, axis=0)  # sum over agents
 
                 def _loss_fn(params):
                     q_vals = jax.vmap(network.apply, in_axes=(None, 0))(
@@ -518,8 +521,10 @@ def single_run(config):
             alg_name.upper(),
             env_name.upper(),
             f"jax_{jax.__version__}",
-        ],
-        name=f"{alg_name}_{env_name}",
+        ]
+        + [t for t in os.environ.get("WANDB_TAGS", "").split(",") if t],
+        group=os.environ.get("WANDB_RUN_GROUP") or None,
+        name=os.environ.get("WANDB_NAME") or f"{alg_name}_{env_name}",
         config=config,
         mode=config["WANDB_MODE"],
     )
@@ -540,7 +545,7 @@ def single_run(config):
         OmegaConf.save(
             config,
             os.path.join(
-                save_dir, f'{alg_name}_{env_name}_seed{config["SEED"]}_config.yaml'
+                save_dir, f"{alg_name}_{env_name}_seed{config['SEED']}_config.yaml"
             ),
         )
 
@@ -548,7 +553,7 @@ def single_run(config):
             params = jax.tree.map(lambda x: x[i], model_state.params)
             save_path = os.path.join(
                 save_dir,
-                f'{alg_name}_{env_name}_seed{config["SEED"]}_vmap{i}.safetensors',
+                f"{alg_name}_{env_name}_seed{config['SEED']}_vmap{i}.safetensors",
             )
             save_params(params, save_path)
 
@@ -577,7 +582,7 @@ def tune(default_config):
         rng = jax.random.PRNGKey(config["SEED"])
         rngs = jax.random.split(rng, config["NUM_SEEDS"])
         train_vjit = jax.jit(jax.vmap(make_train(config, env)))
-        outs = jax.block_until_ready(train_vjit(rngs))
+        jax.block_until_ready(train_vjit(rngs))
 
     sweep_config = {
         "name": f"{alg_name}_{env_name}",

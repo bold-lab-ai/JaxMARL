@@ -1,33 +1,31 @@
 """
 Specific to this implementation: CNN network and Reward Shaping Annealing as per Overcooked paper.
 """
-import os
+
 import copy
-import jax
-import jax.numpy as jnp
-import numpy as np
-from functools import partial
+import os
 from typing import Any
 
-import flax
 import chex
-import optax
-import flax.linen as nn
-from flax.training.train_state import TrainState
-import hydra
-from omegaconf import OmegaConf
 import flashbax as fbx
-import wandb
+import flax.linen as nn
+import hydra
+import jax
+import jax.numpy as jnp
+import optax
+from flax.training.train_state import TrainState
+from omegaconf import OmegaConf
 
+import wandb
 from jaxmarl import make
+from jaxmarl.environments.overcooked import overcooked_layouts
 from jaxmarl.environments.smax import map_name_to_scenario
 from jaxmarl.wrappers.baselines import (
-    SMAXLogWrapper,
-    MPELogWrapper,
-    LogWrapper,
     CTRolloutManager,
+    LogWrapper,
+    MPELogWrapper,
+    SMAXLogWrapper,
 )
-from jaxmarl.environments.overcooked import overcooked_layouts
 
 
 class CNN(nn.Module):
@@ -56,9 +54,7 @@ class CNN(nn.Module):
         x = activation(x)
         x = x.reshape((x.shape[0], -1))  # Flatten
 
-        x = nn.Dense(
-            features=64 
-        )(x)
+        x = nn.Dense(features=64)(x)
         x = activation(x)
 
         return x
@@ -167,7 +163,7 @@ def make_train(config, env):
         )
 
         def create_agent(rng):
-            init_x = jnp.zeros((1, *env.observation_space().shape))
+            init_x = jnp.zeros((1, *env.observation_space("agent_0").shape))
             network_params = network.init(rng, init_x)
 
             lr_scheduler = optax.linear_schedule(
@@ -540,7 +536,7 @@ def single_run(config):
         OmegaConf.save(
             config,
             os.path.join(
-                save_dir, f'{alg_name}_{env_name}_seed{config["SEED"]}_config.yaml'
+                save_dir, f"{alg_name}_{env_name}_seed{config['SEED']}_config.yaml"
             ),
         )
 
@@ -548,7 +544,7 @@ def single_run(config):
             params = jax.tree.map(lambda x: x[i], model_state.params)
             save_path = os.path.join(
                 save_dir,
-                f'{alg_name}_{env_name}_seed{config["SEED"]}_vmap{i}.safetensors',
+                f"{alg_name}_{env_name}_seed{config['SEED']}_vmap{i}.safetensors",
             )
             save_params(params, save_path)
 
@@ -577,7 +573,7 @@ def tune(default_config):
         rng = jax.random.PRNGKey(config["SEED"])
         rngs = jax.random.split(rng, config["NUM_SEEDS"])
         train_vjit = jax.jit(jax.vmap(make_train(config, env)))
-        outs = jax.block_until_ready(train_vjit(rngs))
+        jax.block_until_ready(train_vjit(rngs))
 
     sweep_config = {
         "name": f"{alg_name}_{env_name}",

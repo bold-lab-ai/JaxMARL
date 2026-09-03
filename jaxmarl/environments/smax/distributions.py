@@ -1,7 +1,8 @@
-import chex
+from functools import partial
+
 import jax
 import jax.numpy as jnp
-from functools import partial
+from jaxtyping import PRNGKeyArray
 
 
 class Distribution:
@@ -14,13 +15,13 @@ class Distribution:
         self.map_height = map_height
 
     @partial(jax.jit, static_argnums=(0,))
-    def generate(self, key: chex.PRNGKey):
+    def generate(self, key: PRNGKeyArray):
         raise NotImplementedError
 
 
 class ReflectPositionDistribution(Distribution):
     @partial(jax.jit, static_argnums=(0,))
-    def generate(self, key: chex.PRNGKey):
+    def generate(self, key: PRNGKeyArray):
         key, ally_key = jax.random.split(key)
         ally_pos = jax.random.uniform(
             ally_key,
@@ -29,27 +30,32 @@ class ReflectPositionDistribution(Distribution):
             maxval=jnp.array([self.map_width / 2, self.map_height]),
         )
         enemy_pos = jnp.zeros((self.n_enemies, 2))
-        min_size = min(self.n_enemies, self.n_allies)
-        enemy_pos = enemy_pos.at[:min_size, 0].set(self.map_width - ally_pos[:, 0])
-        enemy_pos = enemy_pos.at[:min_size, 1].set(ally_pos[:, 1])
-        enemy_pos = jax.lax.select(
-            min_size == self.n_enemies,
-            enemy_pos,
-            enemy_pos.at[self.n_allies :, :].set(
+
+        if self.n_enemies >= self.n_allies:
+            enemy_pos = enemy_pos.at[: self.n_allies, 0].set(
+                self.map_width - ally_pos[:, 0]
+            )
+            enemy_pos = enemy_pos.at[: self.n_allies, 1].set(ally_pos[:, 1])
+            enemy_pos = enemy_pos.at[self.n_allies :, :].set(
                 jax.random.uniform(
                     key,
                     shape=(self.n_enemies - self.n_allies, 2),
                     minval=jnp.array([self.map_width / 2, 0.0]),
                     maxval=jnp.array([self.map_width, self.map_height]),
                 )
-            ),
-        )
+            )
+        else:
+            enemy_pos = enemy_pos.at[:, 0].set(
+                self.map_width - ally_pos[: self.n_enemies, 0]
+            )
+            enemy_pos = enemy_pos.at[:, 1].set(ally_pos[: self.n_enemies, 1])
+
         return jnp.concatenate([ally_pos, enemy_pos])
 
 
 class SurroundPositionDistribution(Distribution):
     @partial(jax.jit, static_argnums=(0,))
-    def generate(self, key):
+    def generate(self, key: PRNGKeyArray):
         # issue: want to randomly decide the centre and outside teams.
         # issue: don't know what that mean
         def draw_positions(key_, n_inside, n_outside):
@@ -118,7 +124,7 @@ class SurroundAndReflectPositionDistribution(Distribution):
             n_allies, n_enemies, map_width, map_height
         )
 
-    def generate(self, key):
+    def generate(self, key: PRNGKeyArray):
         key_draw, key_surround, key_reflect = jax.random.split(key, num=3)
         val = jax.random.uniform(key_draw)
         return jax.lax.select(
@@ -133,26 +139,25 @@ class UniformUnitTypeDistribution(Distribution):
         super().__init__(n_allies, n_enemies, map_width, map_height)
         self.n_unit_types = n_unit_types
 
-    def generate(self, key):
+    def generate(self, key: PRNGKeyArray):
         enemy_key, ally_key = jax.random.split(key)
         ally_unit_types = jax.random.categorical(
             ally_key,
             jnp.log(jnp.ones((self.n_unit_types,)) / self.n_unit_types),
             shape=(self.n_allies,),
         ).astype(jnp.uint8)
-        enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
-        min_size = min(self.n_allies, self.n_enemies)
-        enemy_unit_types = enemy_unit_types.at[:min_size].set(ally_unit_types)
 
-        enemy_unit_types = jax.lax.select(
-            min_size == self.n_enemies,
-            enemy_unit_types,
-            enemy_unit_types.at[min_size:].set(
+        if self.n_enemies >= self.n_allies:
+            enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
+            enemy_unit_types = enemy_unit_types.at[: self.n_allies].set(ally_unit_types)
+            enemy_unit_types.at[self.n_allies :].set(
                 jax.random.categorical(
                     enemy_key,
                     jnp.log(jnp.ones((self.n_unit_types)) / self.n_unit_types),
                     shape=(self.n_enemies - self.n_allies,),
                 ).astype(jnp.uint8)
-            ),
-        )
+            )
+        else:
+            enemy_unit_types = ally_unit_types[: self.n_enemies]
+
         return jnp.concatenate([ally_unit_types, enemy_unit_types], dtype=jnp.uint8)
