@@ -41,6 +41,7 @@ JAX: `jax<=0.4.38` upper cap removed, floor set to `>=0.4.25` (`jax.tree` became
 - Dockerfile: base image updated to `nvcr.io/nvidia/jax:26.04-py3`; apt cache cleared; `XLA_PYTHON_CLIENT_MEM_FRACTION` removed (unnecessary alongside `PREALLOCATE=false`)
 
 #### Added
+- **Hanabi six-suit (multicolor) decks**: `HanabiEnv` now accepts and forwards `color_map`, whose default extends to `["R", "Y", "G", "W", "B", "M"]` sliced to `num_colors` — previously a fixed five-entry list on `HanabiGame`, so `num_colors > 5` raised `IndexError` while building `action_encoding`. The sixth suit is an ordinary colour: 60-card deck, `num_agents - 1` extra hint actions, maximum score 30; the *rainbow* variant is not implemented. `HanabiGame.__init__` now asserts `len(color_map) == num_colors` and one `num_cards_of_rank` entry per rank, rather than failing later inside traced code. Defaults are unchanged.
 - **Type annotations on `MultiAgentEnv` and all environment classes**; `jaxtyping>=0.2.28` added as core dependency
 - `MultiAgentEnv` and `SUBMODULE_ENVIRONMENTS` now importable directly from `jaxmarl.registration`
 - `jaxmarl/py.typed`: package now ships type information for IDE support

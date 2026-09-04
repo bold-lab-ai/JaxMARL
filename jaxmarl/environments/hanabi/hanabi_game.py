@@ -17,6 +17,11 @@ from jaxmarl.environments.multi_agent_env import (
     State as BaseState,
 )
 
+# Single-character labels used when rendering cards and encoding hint actions.
+# The first five are the standard suits; "M" is the multicolor (rainbow) suit
+# from the six-suit expansion, which here is played as an ordinary sixth color.
+DEFAULT_COLOR_MAP = ["R", "Y", "G", "W", "B", "M"]
+
 
 @struct.dataclass
 class State(BaseState):
@@ -59,10 +64,27 @@ class HanabiGame(MultiAgentEnv):
         max_info_tokens=8,
         max_life_tokens=3,
         num_cards_of_rank=np.array([3, 2, 2, 2, 1]),
-        color_map=["R", "Y", "G", "W", "B"],
+        color_map=None,
         shuffle_player_order=False,
     ):
         super().__init__(num_agents)
+
+        num_cards_of_rank = np.asarray(num_cards_of_rank)
+        assert num_cards_of_rank.shape == (num_ranks,), (
+            f"num_cards_of_rank must have one entry per rank, got "
+            f"{num_cards_of_rank.shape} for num_ranks={num_ranks}"
+        )
+
+        if color_map is None:
+            assert num_colors <= len(DEFAULT_COLOR_MAP), (
+                f"No default color labels for num_colors={num_colors} "
+                f"(at most {len(DEFAULT_COLOR_MAP)}); pass an explicit color_map"
+            )
+            color_map = DEFAULT_COLOR_MAP[:num_colors]
+        assert len(color_map) == num_colors, (
+            f"color_map must have one label per color, got {len(color_map)} "
+            f"labels for num_colors={num_colors}"
+        )
 
         self.agent_range = jnp.arange(num_agents)
         self.num_colors = num_colors

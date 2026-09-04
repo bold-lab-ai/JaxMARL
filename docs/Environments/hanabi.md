@@ -6,6 +6,36 @@ This directory contains a MARL environment for the cooperative card game, Hanabi
 ## Action Space
 Hanabi is a turn-based game. The current player can choose to discard or play any of the cards in their hand, or hint a colour or rank to any one of their teammates.
 
+## Configuration
+
+Set through the environment constructor:
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `num_agents` | `2` | Players (2-5) |
+| `num_colors` | `5` | Suits |
+| `num_ranks` | `5` | Ranks per suit |
+| `num_cards_of_rank` | `[3, 2, 2, 2, 1]` | Copies of each rank within a suit; one entry per rank |
+| `color_map` | first `num_colors` of `["R", "Y", "G", "W", "B", "M"]` | One-character suit label, used for rendering and hint action names |
+| `hand_size` | `5` (2-3 players), `4` (4-5) | Cards per hand |
+| `max_info_tokens` | `8` | Clue tokens |
+| `max_life_tokens` | `3` | Lives |
+
+### Six suits
+
+```python
+env = make("hanabi", num_colors=6)                              # sixth suit is "M"
+env = make("hanabi", num_colors=6, color_map=list("RYGWBP"))    # relabelled
+```
+
+The physical game's multicolor suit, played as an ordinary colour: a full
+`3/2/2/2/1` set of cards for a 60-card deck, and a maximum score of 30. Colour
+hints are indexed by (teammate, colour), so it costs `num_agents - 1` extra
+actions — one "hint M" per teammate, taking a 2-player game from 21 to 22.
+
+The *rainbow* rules, where a multicolor card is touched by every colour clue,
+are a separate variant and are not implemented.
+
 ## Observation Space
 The observations closely follow the featurization in the HLE. Each observation is comprised of 658 features:
 
@@ -47,6 +77,8 @@ The observations closely follow the featurization in the HLE. Each observation i
   * Possible Card (for each card): 25 (* 10)
   * Colour hinted (for each card): 5 (* 10)
   * Rank hinted (for each card): 5 (* 10)
+
+The counts above are for the default 5-suit deck; every block scales with the configuration. With `num_colors=6` the observation is 774 features: Hands 152, Board 91, Discards 60, Last Action 61, V0 belief 410.
 
 ## Pretrained Models
 

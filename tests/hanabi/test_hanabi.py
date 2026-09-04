@@ -708,12 +708,229 @@ def test_asymmetric_full_game_rollout():
     print("test_asymmetric_full_game_rollout passed")
 
 
+# ---------------------------------------------------------------------------
+# Six colors: the multicolor ("M") suit played as an ordinary sixth color.
+# ---------------------------------------------------------------------------
+
+SIXTH_COLOR = 5  # index of the multicolor suit
+
+
+def make_six_color_env(num_agents=2):
+    """Standard Hanabi plus the sixth (multicolor) suit."""
+    return HanabiEnv(num_agents=num_agents, num_colors=6)
+
+
+def six_color_deck(*cards):
+    """Deck of (color, rank) pairs; the given cards are dealt first, rest are R1."""
+    deck = np.zeros((60, 2), dtype=int)
+    for i, (color, rank) in enumerate(cards):
+        deck[i] = [color, rank]
+    return jnp.array(deck)
+
+
+def test_six_color_default_color_map():
+    """The sixth color is labelled M; five-color envs are unchanged."""
+    assert make_six_color_env().color_map == ["R", "Y", "G", "W", "B", "M"]
+    assert HanabiEnv().color_map == ["R", "Y", "G", "W", "B"]
+
+
+def test_six_color_env_dimensions():
+    """Deck, action and observation sizes all scale with the sixth color."""
+    env_6 = make_six_color_env()
+
+    assert env_6.num_colors == 6
+    assert env_6.deck_size == 60  # 6 suits * 10 cards
+    # 5 discards + 5 plays + (6 colors + 5 ranks) hints for 1 teammate + noop
+    assert env_6.num_moves == 22
+
+    expected_obs_size = sum(
+        [
+            1 * 5 * 6 * 5 + 2,  # hands: teammate's cards + missing-card flags
+            (60 - 2 * 5) + 6 * 5 + 8 + 3,  # board: deck, fireworks, info, lives
+            6 * 10,  # discards
+            2 + 4 + 2 + 6 + 5 + 5 + 5 + 6 * 5 + 1 + 1,  # last action
+            2 * 5 * (6 * 5 + 6 + 5),  # v0 belief
+        ]
+    )
+    assert env_6.obs_size == expected_obs_size == 774
+
+    obs, state = env_6.reset(jax.random.PRNGKey(0))
+    for agent in env_6.agents:
+        assert obs[agent].shape == (env_6.obs_size,)
+    assert state.fireworks.shape == (6, 5)
+    assert state.player_hands.shape == (2, 5, 6, 5)
+
+
+def test_six_color_deck_composition():
+    """Every one of the 6 suits contributes 3/2/2/2/1 cards of ranks 1-5."""
+    env_6 = make_six_color_env()
+    counts = np.array(env_6.get_full_deck().sum(axis=0))
+    expected = np.tile(env_6.num_cards_of_rank, (6, 1))
+    assert counts.shape == (6, 5)
+    assert (counts == expected).all()
+
+    # a shuffled deck holds the same multiset of cards
+    state = env_6.reset_game(jax.random.PRNGKey(1))
+    dealt = state.player_hands.sum(axis=(0, 1))
+    assert (np.array(state.deck.sum(axis=0) + dealt) == expected).all()
+
+
+def test_six_color_action_encoding_covers_sixth_color():
+    """A hint action exists for M, and there is exactly one per color per target."""
+    env_6 = make_six_color_env()
+    color_hints = [
+        env_6.action_encoding[int(a)] for a in env_6.color_action_range.tolist()
+    ]
+    assert color_hints == [f"H{c} to P1 relative" for c in env_6.color_map]
+    assert len(env_6.color_action_range) == 6
+
+
+def test_six_color_hint_updates_knowledge_for_sixth_color():
+    """Hinting M splits the target's hand into M and definitely-not-M cards."""
+    env_6 = make_six_color_env()
+    # agent 0 holds cards 0-4, agent 1 holds cards 5-9: two M1s then three R1s
+    deck = six_color_deck(
+        *[(0, 0)] * 5,
+        (SIXTH_COLOR, 0),
+        (SIXTH_COLOR, 0),
+        (0, 0),
+        (0, 0),
+        (0, 0),
+    )
+    state = env_6.reset_game_from_deck_of_pairs(deck)
+
+    hint_m = int(env_6.color_action_range[SIXTH_COLOR])  # hint M to the next player
+    assert env_6.action_encoding[hint_m] == "HM to P1 relative"
+    new_state, _ = env_6.step_game(state, aidx=0, action=hint_m)
+
+    knowledge = new_state.card_knowledge[1].reshape(env_6.hand_size, 6, 5)
+    assert bool(new_state.colors_revealed[1][:, SIXTH_COLOR].sum() == 2)
+    for card_idx in range(env_6.hand_size):
+        is_m = card_idx < 2
+        if is_m:
+            # only the M row survives
+            assert jnp.all(knowledge[card_idx, :SIXTH_COLOR, :] == 0)
+            assert jnp.any(knowledge[card_idx, SIXTH_COLOR, :] > 0)
+        else:
+            # M is ruled out, other colors remain
+            assert jnp.all(knowledge[card_idx, SIXTH_COLOR, :] == 0)
+            assert jnp.any(knowledge[card_idx, :SIXTH_COLOR, :] > 0)
+
+
+def test_six_color_play_starts_sixth_firework():
+    """Playing M1 onto an empty board scores and starts the M firework."""
+    env_6 = make_six_color_env()
+    state = env_6.reset_game_from_deck_of_pairs(six_color_deck((SIXTH_COLOR, 0)))
+
+    next_state, reward = env_6.step_game(state, aidx=0, action=env_6.hand_size)
+
+    assert int(reward) == 1
+    assert int(next_state.score) == 1
+    assert int(next_state.fireworks[SIXTH_COLOR].sum()) == 1
+    assert int(next_state.fireworks.sum()) == 1
+
+
+def test_six_color_perfect_score_is_thirty():
+    """The sixth suit raises the maximum score from 25 to 30."""
+    env_6 = make_six_color_env()
+    state = env_6.reset_game_from_deck_of_pairs(six_color_deck((SIXTH_COLOR, 4)))
+    near_perfect = jnp.ones((6, 5)).at[SIXTH_COLOR, 4].set(0)
+    state = state.replace(fireworks=near_perfect)
+
+    next_state, reward = env_6.step_game(state, aidx=0, action=env_6.hand_size)
+
+    assert bool(next_state.terminal)
+    assert int(next_state.fireworks.sum()) == 30 == env_6.num_colors * env_6.num_ranks
+    assert int(reward) == 1
+
+
+@pytest.mark.parametrize("num_agents", [2, 3, 4, 5])
+def test_six_color_multi_player_reset_and_step(num_agents):
+    """The sixth color works for every supported player count."""
+    env_6 = make_six_color_env(num_agents=num_agents)
+    key = jax.random.PRNGKey(0)
+    obs, state = env_6.reset(key)
+
+    assert len(obs) == num_agents
+    for agent in env_6.agents:
+        assert obs[agent].shape == (env_6.obs_size,)
+
+    acting_idx = int(jnp.nonzero(state.cur_player_idx, size=1)[0][0])
+    actions = {agent: env_6.num_moves - 1 for agent in env_6.agents}
+    actions[env_6.agents[acting_idx]] = int(env_6.color_action_range[SIXTH_COLOR])
+
+    obs2, _, rewards, dones, _ = env_6.step(key, state, actions)
+
+    assert len(obs2) == num_agents
+    assert "__all__" in dones and "__all__" in rewards
+
+
+def test_six_color_full_game_rollout():
+    """Play a whole six-color game with random legal actions."""
+    env_6 = make_six_color_env()
+    key = jax.random.PRNGKey(7)
+    obs, state = env_6.reset(key)
+
+    steps = 0
+    while not bool(state.terminal) and steps < env_6.deck_size + 20:
+        key, subkey, action_key = jax.random.split(key, 3)
+        cur_player = int(jnp.nonzero(state.cur_player_idx, size=1)[0][0])
+        cur_legal = env_6.get_legal_moves(state)[env_6.agents[cur_player]]
+        legal_indices = jnp.where(cur_legal, size=env_6.num_moves)[0]
+        num_legal = int(cur_legal.sum())
+        action = int(legal_indices[jax.random.randint(action_key, (), 0, num_legal)])
+
+        actions = {agent: env_6.num_moves - 1 for agent in env_6.agents}
+        actions[env_6.agents[cur_player]] = action
+        obs, state, rewards, dones, info = env_6.step_env(subkey, state, actions)
+        steps += 1
+
+    assert bool(state.terminal), "six-color game did not terminate"
+    assert 0 <= int(state.score) <= env_6.num_colors * env_6.num_ranks
+    for agent in env_6.agents:
+        assert obs[agent].shape == (env_6.obs_size,)
+
+
+# ---------------------------------------------------------------------------
+# color_map configuration
+# ---------------------------------------------------------------------------
+
+
+def test_custom_color_map_is_used_for_labels():
+    """An explicit color_map drives hint labels and card rendering."""
+    env_c = HanabiEnv(num_agents=2, num_colors=6, color_map=list("123456"))
+    assert env_c.action_encoding[int(env_c.color_action_range[SIXTH_COLOR])] == (
+        "H6 to P1 relative"
+    )
+    card = jnp.zeros((6, 5)).at[SIXTH_COLOR, 0].set(1)
+    assert env_c.card_to_string(card) == "61"
+
+
+def test_color_map_length_must_match_num_colors():
+    """Mismatched or missing color labels are rejected at construction."""
+    with pytest.raises(AssertionError):
+        HanabiEnv(num_agents=2, num_colors=6, color_map=["R", "Y", "G", "W", "B"])
+    with pytest.raises(AssertionError):
+        # no default labels beyond the six known suits
+        HanabiEnv(num_agents=2, num_colors=7)
+
+
+def test_num_cards_of_rank_length_must_match_num_ranks():
+    """A rank-count array of the wrong length is rejected at construction."""
+    with pytest.raises(AssertionError):
+        HanabiEnv(num_agents=2, num_colors=6, num_ranks=5, num_cards_of_rank=[3, 2, 1])
+
+
 def main():
     test_injected_decks()
     test_asymmetric_reset_and_step_smoke()
     test_asymmetric_color_hint_knowledge()
     test_asymmetric_rank_hint_knowledge()
     test_asymmetric_full_game_rollout()
+    test_six_color_env_dimensions()
+    test_six_color_deck_composition()
+    test_six_color_hint_updates_knowledge_for_sixth_color()
+    test_six_color_full_game_rollout()
 
 
 if __name__ == "__main__":
