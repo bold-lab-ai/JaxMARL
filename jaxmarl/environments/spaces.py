@@ -94,7 +94,7 @@ class Box(Space):
         low: jax.typing.ArrayLike,
         high: jax.typing.ArrayLike,
         shape: tuple[int, ...],
-        dtype: jnp.dtype = jnp.float32,
+        dtype: jax.typing.DTypeLike = jnp.float32,
     ):
         self.low = low
         self.high = high
