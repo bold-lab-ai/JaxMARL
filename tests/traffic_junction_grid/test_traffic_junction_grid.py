@@ -118,6 +118,7 @@ def test_transitions_match_reference(difficulty, vision):
             actions = {a: acts[i] for i, a in enumerate(env.agents)}
 
             _load_reference_state(ref, state, routes)
+            ref.is_completed = np.zeros(ref.ncar)
             for i, a in enumerate(np.array(acts)):
                 ref._take_action(i, a)
             obs, next_state, reward, done, info = step_env(key_step, state, actions)
@@ -151,6 +152,8 @@ def test_transitions_match_reference(difficulty, vision):
             )
             assert bool(next_state.has_failed) == bool(ref.has_failed)
             assert bool(info["success"][0]) == (not ref.has_failed)
+            np.testing.assert_array_equal(info["alive"], ref.alive_mask == 1)
+            np.testing.assert_array_equal(info["completed"], ref.is_completed == 1)
             for i, a in enumerate(env.agents):
                 act, route, window = ref_obs[i]
                 expected = np.concatenate([[act, route], np.ravel(window)])
@@ -228,8 +231,10 @@ def test_car_leaves_at_end_of_route():
         wait=state.wait.at[0].set(5),
     )
     actions = {a: jnp.int32(GAS) for a in env.agents}
-    obs, state, reward, _, _ = env.step_env(jax.random.PRNGKey(0), state, actions)
+    obs, state, reward, _, info = env.step_env(jax.random.PRNGKey(0), state, actions)
     assert not bool(state.alive[0])
+    assert bool(info["completed"][0]) and not bool(info["completed"][1:].any())
+    assert not bool(info["alive"].any())
     np.testing.assert_array_equal(state.car_loc[0], [0, 0])
     assert int(state.wait[0]) == 0
     assert float(reward["agent_0"]) == 0.0

@@ -21,7 +21,7 @@ Cars that are off the road observe zeros.
 | 0 | GAS: advance one cell along the route |
 | 1 | BRAKE: stay |
 
-A car on the road receives `-0.01 * wait` per step, where `wait` is the number of steps it has spent on the road, and `-10` for each step in which it shares a cell with another car. Cars off the road receive 0. Episodes end after `max_steps`. `info["success"]` is true when no collision has happened in the episode.
+A car on the road receives `-0.01 * wait` per step, where `wait` is the number of steps it has spent on the road, and `-10` for each step in which it shares a cell with another car. Cars off the road receive 0. Episodes end after `max_steps`. `info["success"]` is true when no collision has happened in the episode. As in the reference, `info["alive"]` marks the cars on the road after the step, and `info["completed"]` the cars that left at the end of their route during it; methods that mask cars off the road, like the IC3Net baselines, use them.
 
 At each step, a car enters at each arrival point with probability `add_rate`, while fewer than `num_agents` cars are on the road; entering cars take a random route from that arrival point. The agents are a fixed pool of `num_agents` car slots, which are reused as cars leave and enter.
 

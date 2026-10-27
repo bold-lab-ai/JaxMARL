@@ -232,7 +232,9 @@ class TrafficJunctionGrid(MultiAgentEnv):
     the number of steps it has spent on the road, and ``-10`` for every step in
     which it shares a cell with another car. Cars off the road receive 0.
     Episodes end after ``max_steps``; ``info["success"]`` is true when no
-    collision has happened in the episode.
+    collision has happened in the episode. ``info["alive"]`` marks the cars on
+    the road after the step and ``info["completed"]`` the cars that left at
+    the end of their route during it, as the reference reports them.
 
     ``difficulty`` selects the paper's layout and its defaults for the other
     arguments, which can be overridden individually: easy is one junction of
@@ -356,7 +358,9 @@ class TrafficJunctionGrid(MultiAgentEnv):
         """Move the cars, let new cars enter, then score collisions."""
         # The baselines pass each action as a scalar or a (1,) array.
         acts = jnp.array([actions[a] for a in self.agents]).reshape(self.num_agents)
+        on_road = state.alive
         state = self._move_cars(state, acts)
+        completed = on_road & ~state.alive
         state = self._add_cars(key, state)
 
         same_cell = jnp.all(state.car_loc[:, None] == state.car_loc[None, :], axis=-1)
@@ -374,7 +378,11 @@ class TrafficJunctionGrid(MultiAgentEnv):
         rewards = {a: reward[i] for i, a in enumerate(self.agents)}
         dones = {a: done for a in self.agents}
         dones["__all__"] = done
-        infos = {"success": jnp.full((self.num_agents,), ~state.has_failed)}
+        infos = {
+            "success": jnp.full((self.num_agents,), ~state.has_failed),
+            "alive": state.alive,
+            "completed": completed,
+        }
         return self.get_obs(state), state, rewards, dones, infos
 
     def _move_cars(self, state: State, acts: Int[Array, " num_agents"]) -> State:
