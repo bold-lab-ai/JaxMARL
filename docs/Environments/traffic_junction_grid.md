@@ -71,6 +71,22 @@ Environment steps per second (one step of all cars) for random actions, measured
 | `medium` | 6,400 | 15,700 | 1.6M | 12M | 97M |
 | `hard` | 3,300 | 9,200 | 0.9M | 6.8M | 47M |
 
+## Baseline results
+
+IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on `difficulty="medium"`, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_traffic_junction_grid.yaml` and `mappo_homogenous_rnn_traffic_junction_grid.yaml`. Values are the mean ± standard deviation over seeds of the final greedy test episodes.
+
+| Algorithm | Return | Success rate | Wall time (L40S, 20 seeds) |
+| --- | --- | --- | --- |
+| IPPO | -21.2 ± 1.1 | 0.03 ± 0.01 | 24 min |
+| MAPPO | -10.2 ± 0.5 | 0.05 ± 0.01 | 51 min |
+
+Both learn to keep cars moving, which removes most of the waiting penalty, but neither avoids collisions. This matches the IC3Net paper, where agents without communication (IRIC) reach 3.4% success on the medium version, against 89.3% for IC3Net.
+
+```bash
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid NUM_SEEDS=20
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_traffic_junction_grid NUM_SEEDS=20
+```
+
 ## Correspondence with the reference implementation
 
 `tests/traffic_junction_grid/test_traffic_junction_grid.py` checks that the routes of all three versions are identical to the reference's. Car arrivals are random, so the test replays each step of this environment through the reference, with the same state, actions and arriving cars, and checks that car positions, waiting times, rewards, collisions and observations agree. Differences from the reference:

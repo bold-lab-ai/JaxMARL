@@ -72,6 +72,22 @@ Environment steps per second (one step of all predators) for random actions, wit
 | Medium (10x10, 5 predators) | 20,000 | 61,600 | 8.1M | 50M | 180M |
 | Hard (20x20, 10 predators) | 4,800 | 55,000 | 6.1M | 30M | 55M |
 
+## Baseline results
+
+IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on the paper's medium setting in mixed mode, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_predator_prey_grid.yaml` and `mappo_homogenous_rnn_predator_prey_grid.yaml`. Values are the mean ± standard deviation over seeds of the final greedy test episodes.
+
+| Algorithm | Return | Success rate | Episode length | Wall time (L40S, 20 seeds) |
+| --- | --- | --- | --- | --- |
+| IPPO | -0.79 ± 0.03 | 0.92 ± 0.03 | 26.2 ± 0.8 | 21 min |
+| MAPPO | -0.80 ± 0.03 | 0.80 ± 0.04 | 26.1 ± 1.4 | 93 min |
+
+The IC3Net paper reports the number of steps to reach the prey: 28.0 for independent agents without communication (IC) and 13.1 for CommNet. IPPO plateaus early at about the IC level; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds don't fit in an L40S's 48 GB at once, so they were run 5 at a time.
+
+```bash
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid NUM_SEEDS=20
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_prey_grid NUM_SEEDS=5
+```
+
 ## Correspondence with the reference implementation
 
 `tests/predator_prey_grid/test_predator_prey_grid.py` steps this environment and the reference side by side, for each mode and the three paper settings, and checks that observations, rewards, `reached_prey`, termination and success agree at every step. Differences from the reference:
