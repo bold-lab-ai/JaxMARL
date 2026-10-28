@@ -14,7 +14,8 @@ REINFORCE and a learned value baseline:
 
 IC and CommNet train every agent on the team's mean return, IRIC and IC3Net on
 its own (MEAN_RATIO). All agents share parameters, so they must have the same
-observation and action spaces.
+observation and action spaces. The environment's optional "alive", "completed"
+and "success" info entries must hold one value per agent.
 """
 
 import os
@@ -464,8 +465,16 @@ def main(config):
     ]
     outs = jax.tree.map(lambda *x: jnp.concatenate(x), *chunks)
 
-    final = jax.tree.map(lambda x: x[:, -1], outs["metrics"])
-    for k in ["returned_episode_returns", "returned_episode_lengths", "success"]:
+    # Mean over the last 2% of updates, then mean and std over seeds, as the
+    # README's results report.
+    tail = max(1, config["NUM_UPDATES"] // 50)
+    final = jax.tree.map(lambda x: x[:, -tail:].mean(1), outs["metrics"])
+    for k in [
+        "returned_episode_returns",
+        "returned_episode_lengths",
+        "success",
+        "comm_rate",
+    ]:
         if k in final:
             print(f"{k}: {final[k].mean():.3f} +- {final[k].std():.3f}")
 
