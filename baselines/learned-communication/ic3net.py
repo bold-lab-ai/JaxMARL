@@ -5,8 +5,8 @@ implementation (https://github.com/IC3Net/IC3Net).
 As in the reference, every update collects whole episodes and trains with
 REINFORCE and a learned value baseline:
 
-- IC and IRIC: independent agents that don't communicate, with a tanh RNN as in
-  the reference's commands, or with LSTM=True an LSTM as in the paper.
+- IC and IRIC: independent agents that don't communicate, with an LSTM as in
+  the paper, or with LSTM=False the tanh RNN of the reference's commands.
 - CommNet: agents add the mean of the other agents' hidden states to their
   input before each LSTM step.
 - IC3Net: CommNet where each agent also chooses at every step whether to
@@ -156,11 +156,9 @@ def make_optimizer(lr):
 class Learner(NamedTuple):
     network: CommPolicy
     init_params: Callable  # rng -> params
-    rollout: Callable  # (params, rng, curriculum level) -> Transition
+    rollout: Callable  # (params, rng) -> Transition
     returns: Callable  # Transition -> returns
     loss: Callable  # (params, Transition, returns) -> (loss, aux)
-    curriculum_level: Callable  # update -> curriculum level
-    curriculum_values: np.ndarray
     info_keys: tuple
     gated: bool
     always_talk: bool
@@ -186,41 +184,13 @@ def make_learner(config):
     num_updates = int(config["TOTAL_TIMESTEPS"] // num_steps // num_envs)
     config["NUM_UPDATES"] = num_updates
 
-    # CURRICULUM raises an environment argument from START to END in steps of
-    # STEP, between the fractions BEGIN and FINISH of training, as the reference
-    # raises add_rate in Traffic Junction. Each value gets its own environment.
-    curriculum = config.get("CURRICULUM")
-    if curriculum:
-        num_levels = round(
-            (curriculum["END"] - curriculum["START"]) / curriculum["STEP"]
-        )
-        values = curriculum["START"] + curriculum["STEP"] * np.arange(num_levels + 1)
-        envs = [
-            jaxmarl.make(
-                config["ENV_NAME"],
-                **{**config["ENV_KWARGS"], curriculum["KEY"]: float(v)},
-            )
-            for v in values
-        ]
-    else:
-        values, envs = np.zeros(1), [env]
-    env_steps = [jax.vmap(e.step) for e in envs]
-
-    def curriculum_level(update):
-        if not curriculum:
-            return 0
-        progress = (update / num_updates - curriculum["BEGIN"]) / (
-            curriculum["FINISH"] - curriculum["BEGIN"]
-        )
-        return jnp.floor(jnp.clip(progress, 0, 1) * (len(envs) - 1)).astype(int)
-
     network = CommPolicy(
         action_dim=action_dim,
         hidden_size=config["HIDDEN_SIZE"],
         communicate=communicate,
         gated=gated,
         comm_passes=config["COMM_PASSES"],
-        lstm=config.get("LSTM", False),
+        lstm=config.get("LSTM", True),
     )
 
     def init_carry(batch_shape):
@@ -247,7 +217,7 @@ def make_learner(config):
 
     info_keys = tuple(jax.eval_shape(_info, jax.random.PRNGKey(0)).keys())
 
-    def rollout(params, rng, level):
+    def rollout(params, rng):
         """Run every environment from reset for NUM_STEPS steps."""
         rng, _rng = jax.random.split(rng)
         obs, env_state = jax.vmap(env.reset)(jax.random.split(_rng, num_envs))
@@ -265,9 +235,7 @@ def make_learner(config):
                 talk_action = distrax.Categorical(logits=talk_logits).sample(
                     seed=key_talk
                 )
-            obs, env_state, reward, done, info = jax.lax.switch(
-                level,
-                env_steps,
+            obs, env_state, reward, done, info = jax.vmap(env.step)(
                 jax.random.split(key_step, num_envs),
                 env_state,
                 {a: action[:, i] for i, a in enumerate(agents)},
@@ -360,8 +328,6 @@ def make_learner(config):
         rollout=rollout,
         returns=returns,
         loss=loss,
-        curriculum_level=curriculum_level,
-        curriculum_values=values,
         info_keys=info_keys,
         gated=gated,
         always_talk=always_talk,
@@ -371,7 +337,6 @@ def make_learner(config):
 def make_train(config):
     learner = make_learner(config)
     num_envs, num_steps = config["NUM_ENVS"], config["NUM_STEPS"]
-    curriculum = config.get("CURRICULUM")
 
     def train(rng):
         original_seed = rng[0]
@@ -385,8 +350,7 @@ def make_train(config):
         def _update_step(runner_state, update):
             train_state, rng = runner_state
             rng, _rng = jax.random.split(rng)
-            level = learner.curriculum_level(update)
-            traj = learner.rollout(train_state.params, _rng, level)
+            traj = learner.rollout(train_state.params, _rng)
             returns = learner.returns(traj)
             (loss, (actor_loss, value_loss, entropy)), grads = jax.value_and_grad(
                 learner.loss, has_aux=True
@@ -408,10 +372,6 @@ def make_train(config):
                 "value_loss": value_loss,
                 "entropy": entropy,
             }
-            if curriculum:
-                metrics[curriculum["KEY"]] = jnp.asarray(learner.curriculum_values)[
-                    level
-                ]
             if "success" in learner.info_keys:
                 metrics["success"] = traj.success[last, jnp.arange(num_envs)].mean()
             if learner.gated and not learner.always_talk:

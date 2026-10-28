@@ -3,7 +3,7 @@
 "MEAN_RATIO": null # weight of the team's mean return; null uses the baseline's (1 for ic and commnet, 0 for iric and ic3net)
 "NUM_SEEDS": 1 # number of vmapped seeds
 "SEED_CHUNK": null # train the seeds this many at a time, to fit in memory; null trains them all at once
-"LSTM": False # ic and iric: an LSTM as in the paper rather than the tanh RNN of the reference's commands; commnet and ic3net always use one
+"LSTM": True # ic and iric use an LSTM, as in the paper; False gives the tanh RNN of the reference's commands. commnet and ic3net always use one
 "SEED": 0
 
 # wandb params

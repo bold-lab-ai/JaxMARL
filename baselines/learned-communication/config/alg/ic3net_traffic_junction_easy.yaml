@@ -9,13 +9,8 @@
 "HIDDEN_SIZE": 128
 "COMM_PASSES": 1
 "COMM_ACTION_ONE": True # ic3net agents always talk, as the reference does in Traffic Junction
-"LR": 0.001 # the reference's commands; the paper gives 0.003 for Traffic Junction
+"LR": 0.003 # the paper's; the reference's commands use 0.001
 "GAMMA": 1.0
 "VALUE_COEF": 0.01
 "ENT_COEF": 0.0
 "DETACH_GAP": 10 # steps of backpropagation through time
-
-# The paper and the reference's commands raise add_rate from 0.1 to 0.3 in steps of
-# 0.01 between epochs 250 and 1250 of 2000. Floating-point rounding stops the
-# reference's at 0.29.
-"CURRICULUM": {"KEY": "add_rate", "START": 0.1, "END": 0.3, "STEP": 0.01, "BEGIN": 0.125, "FINISH": 0.625}

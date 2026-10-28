@@ -263,7 +263,7 @@ def test_rollout_feeds_the_previous_step_into_communication(baseline, comm_actio
     # Episodes of easy Traffic Junction last 20 of the 25 steps.
     learner = ic3net.make_learner(_config(baseline, COMM_ACTION_ONE=comm_action_one))
     params = learner.init_params(jax.random.PRNGKey(0))
-    traj = jax.tree.map(np.asarray, learner.rollout(params, jax.random.PRNGKey(1), 0))
+    traj = jax.tree.map(np.asarray, learner.rollout(params, jax.random.PRNGKey(1)))
 
     # As in the reference, every agent counts as alive and none talks at the
     # first step; after that, alive comes from the previous step's info.
@@ -419,30 +419,6 @@ def test_optimizer_matches_pytorch_rmsprop():
         v = alpha * v + (1 - alpha) * g**2
         p = p - lr * g / (np.sqrt(v) + eps)
         np.testing.assert_allclose(params["w"], p, rtol=1e-6, atol=1e-8)
-
-
-def test_curriculum_floors_like_the_reference():
-    config = _config(
-        "ic",
-        NUM_ENVS=2,
-        NUM_STEPS=20,
-        TOTAL_TIMESTEPS=2 * 20 * 80,
-        CURRICULUM={
-            "KEY": "add_rate",
-            "START": 0.1,
-            "END": 0.3,
-            "STEP": 0.01,
-            "BEGIN": 0.25,
-            "FINISH": 0.75,
-        },
-    )
-    out = jax.jit(ic3net.make_train(config))(jax.random.PRNGKey(0))
-    add_rate = np.asarray(out["metrics"]["add_rate"])
-    # 20 increments over updates 20 to 60: the reference floors the rate to
-    # its 0.01 step, so each level holds for two whole updates.
-    update = np.arange(80)
-    level = np.clip((update - 20) // 2, 0, 20)
-    np.testing.assert_allclose(add_rate, 0.1 + 0.01 * level, atol=1e-6)
 
 
 def test_script_runs_on_predator_prey():
