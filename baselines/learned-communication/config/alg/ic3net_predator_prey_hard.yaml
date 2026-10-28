@@ -1,0 +1,16 @@
+"ENV_NAME": "predator_prey_grid"
+"ENV_KWARGS": {"num_agents": 10, "dim": 20, "vision": 1, "max_steps": 80, "mode": "mixed"}
+
+# Each update runs NUM_ENVS episodes of up to NUM_STEPS steps; the reference
+# runs 16 processes of at least 500 steps of whole episodes.
+"NUM_ENVS": 100
+"NUM_STEPS": 80
+"TOTAL_TIMESTEPS": 1.6e8 # 20,000 updates, the reference's 2,000 epochs of 10
+"HIDDEN_SIZE": 128
+"COMM_PASSES": 1
+"COMM_ACTION_ONE": False # ic3net agents always talk, as the reference does in Traffic Junction
+"LR": 0.001
+"GAMMA": 1.0
+"VALUE_COEF": 0.01
+"ENT_COEF": 0.0
+"DETACH_GAP": 10 # steps of backpropagation through time
