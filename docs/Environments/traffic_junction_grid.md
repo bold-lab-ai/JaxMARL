@@ -67,13 +67,13 @@ for _ in range(10):
 
 ## Performance
 
-Environment steps per second (one step of all cars) for random actions, measured by `tests/traffic_junction_grid/benchmark.py` on an NVIDIA L40S. The reference runs one environment in Python on the same node's Intel Xeon Gold 6448Y.
+Environment steps per second (one step of all cars, including every car's observation) for random actions, measured by `tests/traffic_junction_grid/benchmark.py` on an NVIDIA L40S as the median of three timed rollouts of 1,000 steps after compilation. The reference runs one environment in Python on the same node's Intel Xeon Gold 6448Y.
 
 | `difficulty` | Reference | JAX, 1 env | JAX, 128 envs | JAX, 1,024 envs | JAX, 8,192 envs |
 | --- | --- | --- | --- | --- | --- |
-| `easy` | 10,800 | 23,800 | 2.7M | 21M | 169M |
-| `medium` | 6,400 | 15,700 | 1.6M | 12M | 97M |
-| `hard` | 3,300 | 9,200 | 0.9M | 6.8M | 47M |
+| `easy` | 10,800 | 20,700 | 2.3M | 15M | 106M |
+| `medium` | 6,500 | 14,100 | 1.3M | 7.8M | 11M |
+| `hard` | 3,300 | 8,500 | 0.63M | 2.1M | 3.1M |
 
 ## Baseline results
 

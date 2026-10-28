@@ -66,13 +66,15 @@ for _ in range(10):
 
 ## Performance
 
-Environment steps per second (one step of all predators) for random actions, with the cooperative reward, measured by `tests/predator_prey_grid/benchmark.py` on an NVIDIA L40S. The reference runs one environment in Python on the same node's Intel Xeon Gold 6448Y.
+Environment steps per second (one step of all predators, including every predator's observation) for random actions, with the cooperative reward, measured by `tests/predator_prey_grid/benchmark.py` on an NVIDIA L40S as the median of three timed rollouts of 1,000 steps after compilation. The reference runs one environment in Python on the same node's Intel Xeon Gold 6448Y.
 
 | Setting | Reference | JAX, 1 env | JAX, 128 envs | JAX, 1,024 envs | JAX, 8,192 envs |
 | --- | --- | --- | --- | --- | --- |
-| Easy (5x5, 3 predators) | 25,700 | 65,800 | 9.2M | 59M | 263M |
-| Medium (10x10, 5 predators) | 20,000 | 61,600 | 8.1M | 50M | 180M |
-| Hard (20x20, 10 predators) | 4,800 | 55,000 | 6.1M | 30M | 55M |
+| Easy (5x5, 3 predators) | 26,800 | 40,600 | 4.8M | 32M | 121M |
+| Medium (10x10, 5 predators) | 20,900 | 34,700 | 3.4M | 4.4M | 3.3M |
+| Hard (20x20, 10 predators) | 4,900 | 26,500 | 0.26M | 0.27M | 0.28M |
+
+Medium and hard observations have 936 and 3,636 entries per predator, and their throughput stops growing beyond 128 to 1,024 environments.
 
 ## Baseline results
 
