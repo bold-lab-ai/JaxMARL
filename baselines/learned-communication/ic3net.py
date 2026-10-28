@@ -6,7 +6,7 @@ As in the reference, every update collects whole episodes and trains with
 REINFORCE and a learned value baseline:
 
 - IC and IRIC: independent agents that don't communicate, with a tanh RNN as in
-  the reference's commands (the paper describes an LSTM for every method).
+  the reference's commands, or with LSTM=True an LSTM as in the paper.
 - CommNet: agents add the mean of the other agents' hidden states to their
   input before each LSTM step.
 - IC3Net: CommNet where each agent also chooses at every step whether to
@@ -53,6 +53,7 @@ class CommPolicy(nn.Module):
     communicate: bool
     gated: bool
     comm_passes: int
+    lstm: bool = False  # without communication, an LSTM rather than a tanh RNN
 
     @nn.compact
     def __call__(self, carry, obs, alive, talk):
@@ -81,6 +82,8 @@ class CommPolicy(nn.Module):
                     name=f"comm_{i}",
                 )(received)
                 (c, h), _ = lstm((c, h), x + message)
+        elif self.lstm:
+            (c, h), _ = nn.OptimizedLSTMCell(self.hidden_size, name="lstm")((c, h), x)
         else:
             h = nn.tanh(
                 x
@@ -217,6 +220,7 @@ def make_learner(config):
         communicate=communicate,
         gated=gated,
         comm_passes=config["COMM_PASSES"],
+        lstm=config.get("LSTM", False),
     )
 
     def init_carry(batch_shape):

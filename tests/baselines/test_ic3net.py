@@ -93,11 +93,13 @@ def _lstm(p, x, h, c):
     return o * np.tanh(c), c
 
 
-def _reference_step(p, obs, h, c, alive, talk, communicate, gated, comm_passes):
+def _reference_step(p, obs, h, c, alive, talk, communicate, gated, comm_passes, lstm):
     """One step of the reference's `CommNetMLP.forward` (recurrent) or `RNN.forward`."""
     n, hid_size = h.shape
     x = _dense(p["encoder"], obs)
-    if not communicate:
+    if not communicate and lstm:
+        h, c = _lstm(p["lstm"], x, h, c)
+    elif not communicate:
         h = np.tanh(_dense(p["recurrent"], h) + x)
     else:
         comm_mask = np.ones((n, n)) - np.eye(n)
@@ -124,9 +126,12 @@ def _reference_step(p, obs, h, c, alive, talk, communicate, gated, comm_passes):
     return h, c, logits, talk_logits, value
 
 
-@pytest.mark.parametrize("baseline", ["ic", "commnet", "ic3net"])
+@pytest.mark.parametrize(
+    "baseline, lstm",
+    [("ic", False), ("ic", True), ("commnet", False), ("ic3net", False)],
+)
 @pytest.mark.parametrize("comm_passes", [1, 2])
-def test_policy_step_matches_reference(baseline, comm_passes):
+def test_policy_step_matches_reference(baseline, lstm, comm_passes):
     communicate, gated, _ = ic3net.BASELINES[baseline]
     n, obs_dim, hidden, actions = 5, 7, 16, 4
     network = ic3net.CommPolicy(
@@ -135,6 +140,7 @@ def test_policy_step_matches_reference(baseline, comm_passes):
         communicate=communicate,
         gated=gated,
         comm_passes=comm_passes,
+        lstm=lstm,
     )
     keys = jax.random.split(jax.random.PRNGKey(0), 4)
     obs = jax.random.normal(keys[0], (n, obs_dim))
@@ -167,9 +173,10 @@ def test_policy_step_matches_reference(baseline, comm_passes):
                 communicate,
                 gated,
                 comm_passes,
+                lstm,
             )
             np.testing.assert_allclose(h1, ref[0], rtol=1e-4, atol=1e-5)
-            if communicate:
+            if communicate or lstm:
                 np.testing.assert_allclose(c1, ref[1], rtol=1e-4, atol=1e-5)
             np.testing.assert_allclose(logits, ref[2], rtol=1e-4, atol=1e-5)
             np.testing.assert_allclose(value, ref[4], rtol=1e-4, atol=1e-5)
@@ -317,9 +324,12 @@ def _reference_loss(network, params, traj, returns, gated, value_coef, detach_ga
     return (actor + value_coef * value_loss) / steps
 
 
-@pytest.mark.parametrize("baseline", ["ic", "commnet", "ic3net"])
-def test_loss_and_gradients_match_reference(baseline):
-    config = _config(baseline, NUM_STEPS=9)
+@pytest.mark.parametrize(
+    "baseline, lstm",
+    [("ic", False), ("ic", True), ("commnet", False), ("ic3net", False)],
+)
+def test_loss_and_gradients_match_reference(baseline, lstm):
+    config = _config(baseline, NUM_STEPS=9, LSTM=lstm)
     learner = ic3net.make_learner(config)
     params = learner.init_params(jax.random.PRNGKey(0))
     rng = np.random.default_rng(0)
