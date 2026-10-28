@@ -192,6 +192,75 @@ def test_arrival_rate_bounds():
     assert int(state.alive.sum()) == env.num_agents  # never more than num_agents
 
 
+def _arrival_stats(arrived, route, num_arrivals, routes_per_arrival):
+    """Per arrival point, the arrival rate and the share of each of its routes."""
+    rates, route_shares = [], []
+    for a in range(num_arrivals):
+        here = arrived & (route // routes_per_arrival == a)
+        rates.append(here.any(-1).mean())
+        counts = np.bincount(
+            route[here] % routes_per_arrival, minlength=routes_per_arrival
+        )
+        route_shares.append(counts / counts.sum())
+    return np.array(rates), np.array(route_shares)
+
+
+@pytest.mark.parametrize("difficulty", ["easy", "medium", "hard"])
+def test_arrivals_match_reference_distribution(difficulty):
+    # The transition test copies the port's arriving cars into the reference, so
+    # this compares the arrival process itself, from an empty road.
+    env = TrafficJunctionGrid(difficulty=difficulty, add_rate=0.5)
+    samples = 4000
+    _, state = env.reset(jax.random.PRNGKey(0))
+    added = jax.vmap(env._add_cars, in_axes=(0, None))(
+        jax.random.split(jax.random.PRNGKey(1), samples), state
+    )
+    port_arrived = np.asarray(added.alive)
+    port_route = np.asarray(added.route)
+
+    ref = _reference(env)
+    np.random.seed(0)
+    ref_arrived = np.zeros((samples, env.num_agents), dtype=bool)
+    ref_route = np.zeros((samples, env.num_agents), dtype=int)
+    for i in range(samples):
+        ref.alive_mask[:] = 0
+        ref.cars_in_sys = 0
+        ref._add_cars()
+        ref_arrived[i] = ref.alive_mask == 1
+        ref_route[i] = ref.route_id
+
+    rpa = env.routes_per_arrival
+    port_rates, port_shares = _arrival_stats(
+        port_arrived, port_route, env.num_arrivals, rpa
+    )
+    ref_rates, ref_shares = _arrival_stats(
+        ref_arrived, ref_route, env.num_arrivals, rpa
+    )
+    # Binomial standard errors are about 0.008 for the rates and at most 0.03
+    # for the route shares.
+    np.testing.assert_allclose(port_rates, 0.5, atol=0.04)
+    np.testing.assert_allclose(ref_rates, 0.5, atol=0.04)
+    np.testing.assert_allclose(port_shares, 1 / rpa, atol=0.07)
+    np.testing.assert_allclose(ref_shares, 1 / rpa, atol=0.07)
+    # The car taking each arrival is a random one off the road, in both.
+    for arrived in (port_arrived, ref_arrived):
+        slot_share = arrived.sum(0) / arrived.sum()
+        np.testing.assert_allclose(slot_share, 1 / env.num_agents, atol=0.02)
+
+
+def test_first_arrival_points_take_the_last_free_slot():
+    # The reference adds cars arrival point by arrival point and stops once
+    # num_agents cars are on the road.
+    env = TrafficJunctionGrid(difficulty="medium", add_rate=1.0)
+    _, state = env.reset(jax.random.PRNGKey(0))
+    alive = jnp.ones(env.num_agents, dtype=bool).at[3].set(False)
+    state = state.replace(alive=alive)
+    for k in range(20):
+        added = env._add_cars(jax.random.PRNGKey(k), state)
+        assert bool(added.alive.all())
+        assert int(added.route[3]) // env.routes_per_arrival == 0
+
+
 def test_collision_penalty_and_success():
     env = TrafficJunctionGrid(difficulty="easy", add_rate=0.0)
     _, state = env.reset(jax.random.PRNGKey(0))

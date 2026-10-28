@@ -157,6 +157,22 @@ def test_reset_places_everyone_on_distinct_cells():
     assert bool(jnp.all((locs >= 0) & (locs < env.dim)))
 
 
+def test_reset_places_prey_and_predators_uniformly():
+    # The reference places every animal uniformly at random.
+    env = PredatorPreyGrid(num_agents=3, dim=5)
+    samples = 20000
+    _, states = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(0), samples))
+    for locs in (
+        states.prey_loc,
+        states.predator_loc[:, 0],
+        states.predator_loc[:, -1],
+    ):
+        cells = np.asarray(locs[..., 0] * env.dim + locs[..., 1])
+        share = np.bincount(cells, minlength=env.dim**2) / samples
+        # The standard error of each share is about 0.0014.
+        np.testing.assert_allclose(share, 1 / env.dim**2, atol=0.008)
+
+
 def test_jit_vmap_and_auto_reset():
     env = make("predator_prey_grid", num_agents=5, dim=10, vision=1, max_steps=40)
     batch = 64

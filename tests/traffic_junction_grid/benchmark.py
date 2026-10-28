@@ -12,7 +12,9 @@ from test_traffic_junction_grid import _reference
 from jaxmarl.environments.traffic_junction_grid import TrafficJunctionGrid
 
 
-def jax_steps_per_second(env, num_envs, num_steps=1000):
+def jax_steps_per_second(env, num_envs, num_steps=1000, repeats=3):
+    """Median over ``repeats`` timed rollouts, after one to compile."""
+
     def _rollout(key):
         key_reset, key_steps = jax.random.split(key)
         _, state = jax.vmap(env.reset)(jax.random.split(key_reset, num_envs))
@@ -21,19 +23,25 @@ def jax_steps_per_second(env, num_envs, num_steps=1000):
             key_act, key_step = jax.random.split(key)
             acts = jax.random.randint(key_act, (env.num_agents, num_envs), 0, 2)
             actions = {a: acts[i] for i, a in enumerate(env.agents)}
-            _, state, reward, _, _ = jax.vmap(env.step)(
+            obs, state, reward, _, _ = jax.vmap(env.step)(
                 jax.random.split(key_step, num_envs), state, actions
             )
-            return state, reward[env.agents[0]]
+            # Use every agent's observation, as training does; otherwise XLA
+            # skips computing them, while the reference always does.
+            obs_sum = sum(obs[a].sum() for a in env.agents)
+            return state, reward[env.agents[0]].sum() + obs_sum
 
-        _, rewards = jax.lax.scan(_step, state, jax.random.split(key_steps, num_steps))
-        return rewards
+        _, out = jax.lax.scan(_step, state, jax.random.split(key_steps, num_steps))
+        return out
 
     rollout = jax.jit(_rollout)
     rollout(jax.random.PRNGKey(0)).block_until_ready()
-    start = time.perf_counter()
-    rollout(jax.random.PRNGKey(1)).block_until_ready()
-    return num_envs * num_steps / (time.perf_counter() - start)
+    seconds = []
+    for i in range(repeats):
+        start = time.perf_counter()
+        rollout(jax.random.PRNGKey(i + 1)).block_until_ready()
+        seconds.append(time.perf_counter() - start)
+    return num_envs * num_steps / float(np.median(seconds))
 
 
 def reference_steps_per_second(env, num_steps=20_000):
