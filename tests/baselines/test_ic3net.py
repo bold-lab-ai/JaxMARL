@@ -13,6 +13,7 @@ import sys
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 
 SCRIPT = os.path.join("baselines", "learned-communication", "ic3net.py")
@@ -224,24 +225,199 @@ def test_script_runs(baseline):
     assert "success" in result.stdout
 
 
-def test_curriculum_raises_add_rate():
+def _config(baseline, **overrides):
     config = {
-        "BASELINE": "ic",
+        "BASELINE": baseline,
         "MEAN_RATIO": None,
         "ENV_NAME": "traffic_junction_grid",
         "ENV_KWARGS": {"difficulty": "easy"},
-        "NUM_ENVS": 2,
-        "NUM_STEPS": 20,
-        "TOTAL_TIMESTEPS": 2 * 20 * 80,
+        "NUM_ENVS": 3,
+        "NUM_STEPS": 25,
+        "TOTAL_TIMESTEPS": 3 * 25 * 2,
         "HIDDEN_SIZE": 8,
         "COMM_PASSES": 1,
+        "COMM_ACTION_ONE": False,
         "LR": 0.001,
         "GAMMA": 1.0,
         "VALUE_COEF": 0.01,
         "ENT_COEF": 0.0,
-        "DETACH_GAP": 10,
+        "DETACH_GAP": 3,
         "WANDB_MODE": "disabled",
-        "CURRICULUM": {
+    }
+    config.update(overrides)
+    return config
+
+
+@pytest.mark.parametrize(
+    "baseline, comm_action_one",
+    [("ic", False), ("commnet", False), ("ic3net", False), ("ic3net", True)],
+)
+def test_rollout_feeds_the_previous_step_into_communication(baseline, comm_action_one):
+    # Episodes of easy Traffic Junction last 20 of the 25 steps.
+    learner = ic3net.make_learner(_config(baseline, COMM_ACTION_ONE=comm_action_one))
+    params = learner.init_params(jax.random.PRNGKey(0))
+    traj = jax.tree.map(np.asarray, learner.rollout(params, jax.random.PRNGKey(1), 0))
+
+    # As in the reference, every agent counts as alive and none talks at the
+    # first step; after that, alive comes from the previous step's info.
+    assert np.all(traj.alive[0] == 1) and np.all(traj.talk[0] == 0)
+    np.testing.assert_array_equal(traj.alive[1:], traj.alive_after[:-1])
+    assert np.any(traj.alive_after == 0)  # cars off the road are not alive
+    # An IC3Net agent's choice to talk takes effect at the next step.
+    if learner.always_talk:
+        assert np.all(traj.talk[1:] == 1)
+    elif learner.gated:
+        np.testing.assert_array_equal(traj.talk[1:], traj.talk_action[:-1])
+        assert 0 < traj.talk_action.mean() < 1
+    # Only the first episode counts.
+    assert np.all(traj.valid[:20]) and not np.any(traj.valid[20:])
+    assert np.all(traj.done[19]) and not np.any(traj.done[:19])
+
+
+def _reference_loss(network, params, traj, returns, gated, value_coef, detach_gap):
+    """The reference's loss (`Trainer.get_episode` and `compute_grad`), one
+    environment and one step at a time."""
+    actor, value_loss, steps = 0.0, 0.0, 0
+    for e in range(traj.obs.shape[1]):
+        hidden = tuple(jnp.zeros((1, *traj.obs.shape[2:3], 8)) for _ in range(2))
+        log_probs, values = [], []
+        for t in range(traj.obs.shape[0]):
+            if not traj.valid[t, e]:
+                break
+            hidden, logits, talk_logits, value = network.apply(
+                params,
+                hidden,
+                traj.obs[t, e][None],
+                traj.alive[t, e][None],
+                traj.talk[t, e][None],
+            )
+            log_prob = jnp.take_along_axis(
+                jax.nn.log_softmax(logits[0]), traj.action[t, e][:, None], -1
+            )[:, 0]
+            if gated:
+                log_prob = (
+                    log_prob
+                    + jnp.take_along_axis(
+                        jax.nn.log_softmax(talk_logits[0]),
+                        traj.talk_action[t, e][:, None],
+                        -1,
+                    )[:, 0]
+                )
+            log_probs.append(log_prob)
+            values.append(value[0])
+            if (t + 1) % detach_gap == 0:
+                hidden = jax.lax.stop_gradient(hidden)
+        n = len(values)
+        log_probs, values = jnp.stack(log_probs), jnp.stack(values)
+        alive_mask = traj.alive_after[:n, e]
+        advantages = returns[:n, e] - jax.lax.stop_gradient(values)
+        actor = actor - (advantages * log_probs * alive_mask).sum()
+        value_loss = value_loss + (((values - returns[:n, e]) ** 2) * alive_mask).sum()
+        steps += n
+    return (actor + value_coef * value_loss) / steps
+
+
+@pytest.mark.parametrize("baseline", ["ic", "commnet", "ic3net"])
+def test_loss_and_gradients_match_reference(baseline):
+    config = _config(baseline, NUM_STEPS=9)
+    learner = ic3net.make_learner(config)
+    params = learner.init_params(jax.random.PRNGKey(0))
+    rng = np.random.default_rng(0)
+    steps, envs, agents, obs_dim = (
+        9,
+        3,
+        5,
+        params["params"]["encoder"]["kernel"].shape[0],
+    )
+    alive_after = (rng.random((steps, envs, agents)) < 0.7).astype(np.float32)
+    done = np.zeros((steps, envs), dtype=bool)
+    done[5, 0] = True  # the first environment's episode ends early
+    valid = np.concatenate(
+        [np.ones((1, envs), bool), ~np.cumsum(done, 0)[:-1].astype(bool)]
+    )
+    traj = ic3net.Transition(
+        obs=rng.normal(size=(steps, envs, agents, obs_dim)).astype(np.float32),
+        alive=np.concatenate(
+            [np.ones((1, envs, agents), np.float32), alive_after[:-1]]
+        ),
+        talk=np.concatenate(
+            [np.zeros((1, envs, agents)), rng.integers(0, 2, (steps - 1, envs, agents))]
+        ).astype(np.float32),
+        action=rng.integers(0, 2, (steps, envs, agents)),
+        talk_action=rng.integers(0, 2, (steps, envs, agents)),
+        reward=rng.normal(size=(steps, envs, agents)).astype(np.float32),
+        alive_after=alive_after,
+        completed=rng.random((steps, envs, agents)) < 0.1,
+        valid=valid,
+        done=done,
+        success=valid,
+    )
+    traj = jax.tree.map(jnp.asarray, traj)
+
+    # The returns come from the trajectory's own done and completed.
+    returns = learner.returns(traj)
+    _, _, mean_ratio = ic3net.BASELINES[baseline]
+    for e in range(envs):
+        last = np.asarray(done[:, e]) | (np.arange(steps) == steps - 1)
+        expected = _reference_returns(
+            np.asarray(traj.reward[:, e]),
+            np.where(last[:, None], 0.0, 1.0) * np.ones(agents),
+            np.where(last[:, None], 1.0, 1.0 - np.asarray(traj.completed[:, e])),
+            config["GAMMA"],
+            mean_ratio,
+        )
+        np.testing.assert_allclose(returns[:, e], expected, rtol=1e-5, atol=1e-5)
+
+    def port(params):
+        return learner.loss(params, traj, returns)[0]
+
+    def reference(params):
+        return _reference_loss(
+            learner.network,
+            params,
+            traj,
+            returns,
+            learner.gated,
+            config["VALUE_COEF"],
+            config["DETACH_GAP"],
+        )
+
+    with jax.default_matmul_precision("float32"):
+        loss, grads = jax.value_and_grad(port)(params)
+        ref_loss, ref_grads = jax.value_and_grad(reference)(params)
+    np.testing.assert_allclose(loss, ref_loss, rtol=1e-5)
+    jax.tree.map(
+        lambda a, b: np.testing.assert_allclose(a, b, rtol=1e-4, atol=1e-6),
+        grads,
+        ref_grads,
+    )
+
+
+def test_optimizer_matches_pytorch_rmsprop():
+    # torch.optim.RMSprop(alpha=0.97, eps=1e-6): v = alpha v + (1 - alpha) g^2,
+    # p -= lr g / (sqrt(v) + eps).
+    lr, alpha, eps = 0.001, 0.97, 1e-6
+    rng = np.random.default_rng(0)
+    params = {"w": jnp.asarray(rng.normal(size=6))}
+    tx = ic3net.make_optimizer(lr)
+    state = tx.init(params)
+    p, v = np.asarray(params["w"], np.float64), np.zeros(6)
+    for scale in [1e-6, 1e-5, 1e-3]:
+        g = rng.normal(size=6) * scale
+        updates, state = tx.update({"w": jnp.asarray(g, jnp.float32)}, state, params)
+        params = optax.apply_updates(params, updates)
+        v = alpha * v + (1 - alpha) * g**2
+        p = p - lr * g / (np.sqrt(v) + eps)
+        np.testing.assert_allclose(params["w"], p, rtol=1e-6, atol=1e-8)
+
+
+def test_curriculum_floors_like_the_reference():
+    config = _config(
+        "ic",
+        NUM_ENVS=2,
+        NUM_STEPS=20,
+        TOTAL_TIMESTEPS=2 * 20 * 80,
+        CURRICULUM={
             "KEY": "add_rate",
             "START": 0.1,
             "END": 0.3,
@@ -249,10 +425,30 @@ def test_curriculum_raises_add_rate():
             "BEGIN": 0.25,
             "FINISH": 0.75,
         },
-    }
+    )
     out = jax.jit(ic3net.make_train(config))(jax.random.PRNGKey(0))
     add_rate = np.asarray(out["metrics"]["add_rate"])
-    np.testing.assert_allclose(add_rate[:20], 0.1)
-    np.testing.assert_allclose(add_rate[60:], 0.3)
-    steps = np.diff(add_rate)
-    assert np.all(steps >= 0) and np.all(steps <= 0.01 + 1e-6)
+    # 20 increments over updates 20 to 60: the reference floors the rate to
+    # its 0.01 step, so each level holds for two whole updates.
+    update = np.arange(80)
+    level = np.clip((update - 20) // 2, 0, 20)
+    np.testing.assert_allclose(add_rate, 0.1 + 0.01 * level, atol=1e-6)
+
+
+def test_script_runs_on_predator_prey():
+    result = subprocess.run(
+        [
+            sys.executable,
+            SCRIPT,
+            "+alg=ic3net_predator_prey_easy",
+            "BASELINE=ic3net",
+            "NUM_SEEDS=2",
+            "SEED_CHUNK=1",
+            "alg.NUM_ENVS=4",
+            "alg.TOTAL_TIMESTEPS=400",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "returned_episode_lengths" in result.stdout
