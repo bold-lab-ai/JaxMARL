@@ -28,8 +28,8 @@ class Reference(TrafficJunctionEnv):
     """The reference, with easy road ids counted over the enlarged grid.
 
     This is the port's one intended change to the reference: it sizes the easy
-    vocabulary from ``dim`` rather than ``dim + 1``, so two road cells share the
-    outside and road ids.
+    vocabulary from ``dim`` rather than ``dim + 1``, so one road cell, two below
+    the junction, has the outside id.
     """
 
     def multi_agent_init(self, args):

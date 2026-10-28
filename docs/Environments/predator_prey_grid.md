@@ -74,7 +74,7 @@ Environment steps per second (one step of all predators, including every predato
 | Medium (10x10, 5 predators) | 20,900 | 34,700 | 3.4M | 4.4M | 3.3M |
 | Hard (20x20, 10 predators) | 4,900 | 26,500 | 0.26M | 0.27M | 0.28M |
 
-Medium and hard observations have 936 and 3,636 entries per predator, and their throughput stops growing beyond 128 to 1,024 environments.
+Medium and hard observations have 936 and 3,636 entries per predator. Medium throughput peaks at 1,024 environments and falls by a quarter at 8,192; hard throughput barely grows beyond 128.
 
 ## Baseline results
 
@@ -85,13 +85,13 @@ IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on
 | IPPO | -0.79 ± 0.03 | 0.92 ± 0.03 | 26.2 ± 0.8 | 21 min |
 | MAPPO | -0.80 ± 0.03 | 0.80 ± 0.04 | 26.1 ± 1.4 | 93 min |
 
-The IC3Net paper reports the number of steps to reach the prey: 28.0 for independent agents without communication (IC) and 13.1 for CommNet. IPPO plateaus early at about the IC level; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds don't fit in an L40S's 48 GB at once, so they were run as four sequential batches of 5, with the seeds of `NUM_SEEDS=20`; its wall time is the sum. The script itself can't split seeds into batches: `NUM_SEEDS=5` runs the first five of those seeds.
+The IC3Net paper reports the number of steps to reach the prey: 28.0 for independent agents without communication (IC) and 13.1 for CommNet. IPPO's episode length levels off early at about the IC level, though its success rate is still rising slowly; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds at once ran out of memory on an L40S's 48 GB, so they were run as four sequential batches of 5, with the seeds of `NUM_SEEDS=20`; its wall time is the sum. The tables were produced by a script that calls the same `make_train`, runs the seeds in batches and saves each seed's test metrics. The training scripts themselves can't split seeds into batches; with JAX 0.5 or later, whose default random-key splitting makes the first keys of a split independent of their number, `NUM_SEEDS=5` runs the first five of those seeds.
 
-The scripts report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them:
+The scripts report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them, and `WANDB_LOG_ALL_SEEDS` to log each seed under its own keys rather than all of them under the same ones:
 
 ```bash
-python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid NUM_SEEDS=20 WANDB_MODE=online
-python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_prey_grid NUM_SEEDS=5 WANDB_MODE=online
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_prey_grid NUM_SEEDS=5 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
 ```
 
 ## Correspondence with the reference implementation

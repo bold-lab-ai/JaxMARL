@@ -27,7 +27,7 @@ At each step, a car enters at each arrival point with probability `add_rate`, wh
 
 ## Configurations
 
-`difficulty` selects the paper's layout and defaults for the other arguments, from Table 4 of the IC3Net paper; any of them can be overridden.
+`difficulty` selects the paper's layout and defaults for the other arguments, from Table 4 of the IC3Net paper and, for `max_steps`, its text; any of them can be overridden.
 
 | `difficulty` | Layout | Grid | Routes | `num_agents` | `max_steps` | `add_rate` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -40,6 +40,7 @@ At each step, a car enters at each arrival point with probability `add_rate`, wh
 - `max_steps` for `hard`: the paper's text gives 60 and the reference's command 80. This follows the command.
 - `add_rate` for `medium`: the reference's instructions give a maximum of 0.02, below the minimum of 0.05, which disables its curriculum. This follows Table 4.
 - `num_agents` for `medium`: the paper's text gives 20 and Table 4 gives 10. This follows Table 4 and the reference's instructions.
+- The layouts: the paper's text gives `easy` two routes per arrival point and `medium` two junctions, and Table 4 gives one of each. This follows Table 4 and the reference.
 
 ## Usage
 
@@ -77,7 +78,7 @@ Environment steps per second (one step of all cars, including every car's observ
 
 ## Baseline results
 
-IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on `difficulty="medium"`, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_traffic_junction_grid.yaml` and `mappo_homogenous_rnn_traffic_junction_grid.yaml`. They train at the fixed default `add_rate`, without the paper's curriculum. Values are the mean ± standard deviation over seeds of the final greedy test episodes; wall times include compilation.
+IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on `difficulty="medium"`, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_traffic_junction_grid.yaml` and `mappo_homogenous_rnn_traffic_junction_grid.yaml`. They train at the fixed default `add_rate`, without the paper's curriculum. Values are the mean ± standard deviation over seeds of the final greedy test episodes; wall times include compilation. The return is each car slot's total reward over the episode, averaged over the slots. Unlike the reference's trainer, IPPO and MAPPO don't mask the steps a slot spends off the road, where its observation and reward are zero.
 
 | Algorithm | Return | Success rate | Wall time (L40S, 20 seeds) |
 | --- | --- | --- | --- |
@@ -86,21 +87,23 @@ IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on
 
 Both raise the return, but neither avoids collisions. In the IC3Net paper, agents without communication (IRIC) also reach 3.4% success on the medium version, against 89.3% for IC3Net, with the curriculum and 2,000 epochs of training.
 
-The scripts report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them:
+The tables were produced by a script that calls the same `make_train` and saves each seed's test metrics. The scripts themselves report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them, and `WANDB_LOG_ALL_SEEDS` to log each seed under its own keys rather than all of them under the same ones:
 
 ```bash
-python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online
-python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
 ```
 
 ## Correspondence with the reference implementation
 
 `tests/traffic_junction_grid/test_traffic_junction_grid.py` checks that the routes of all three versions are identical to the reference's. Car arrivals are random, so the test replays each step of this environment through the reference, with the same state, actions and arriving cars, and checks that car positions, waiting times, rewards, collisions and observations agree. Differences from the reference:
 
-- The reference sizes the easy version's road ids from `dim` rather than the enlarged `dim + 1` grid, so two road cells share the *outside* and road ids. Here every road cell has its own id. The test applies the same change to the reference.
+- The reference sizes the easy version's road ids from `dim` rather than the enlarged `dim + 1` grid, so one road cell, two below the junction, has the *outside* id. Here every road cell has its own id. The test applies the same change to the reference.
 - Cars that are off the road are not counted in observations. The reference counts them at cell `(0, 0)`, which is never road and only falls inside a window for larger `vision` (from 6 on `medium` and 4 on `hard`).
 - The paper's reward scales the collision penalty with the number of collisions; the reference code, followed here, gives `-10` once per step however many cars share the cell.
 - `add_rate` is fixed for an environment; the reference's curriculum is left to the training loop.
+- The time limit is part of the environment; the reference never ends an episode and leaves the limit to the training loop.
+- Observations are flat vectors, like those of the other JaxMARL environments: the reference's `(last action, route id, window)` tuple, with the `(2v+1, 2v+1, vocab)` window flattened in that order.
 
 ## Citation
 
