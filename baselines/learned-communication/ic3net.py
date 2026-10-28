@@ -5,7 +5,8 @@ implementation (https://github.com/IC3Net/IC3Net).
 As in the reference, every update collects whole episodes and trains with
 REINFORCE and a learned value baseline:
 
-- IC and IRIC: independent recurrent agents that don't communicate.
+- IC and IRIC: independent agents that don't communicate, with a tanh RNN as in
+  the reference's commands (the paper describes an LSTM for every method).
 - CommNet: agents add the mean of the other agents' hidden states to their
   input before each LSTM step.
 - IC3Net: CommNet where each agent also chooses at every step whether to
@@ -43,7 +44,8 @@ BASELINES = {
 
 
 class CommPolicy(nn.Module):
-    """One step of all agents' policies, as in the reference's `RNN` and `CommNetMLP`."""
+    """One step of all agents' policies, with the structure of the reference's `RNN`
+    and `CommNetMLP`."""
 
     action_dim: int
     hidden_size: int

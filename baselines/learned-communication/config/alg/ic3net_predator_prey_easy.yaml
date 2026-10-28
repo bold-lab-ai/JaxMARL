@@ -2,14 +2,14 @@
 "ENV_KWARGS": {"num_agents": 3, "dim": 5, "vision": 0, "max_steps": 20, "mode": "mixed"}
 
 # Each update runs NUM_ENVS episodes of up to NUM_STEPS steps; the reference
-# runs 16 processes of at least 500 steps of whole episodes.
+# runs 16 processes that each collect at least 500 steps of whole episodes.
 "NUM_ENVS": 400
 "NUM_STEPS": 20
-"TOTAL_TIMESTEPS": 1.6e8 # 20,000 updates, the reference's 2,000 epochs of 10
+"TOTAL_TIMESTEPS": 1.6e8 # simulated steps: 20,000 updates, the reference's 2,000 epochs of 10; the paper trains 1,000
 "HIDDEN_SIZE": 128
 "COMM_PASSES": 1
 "COMM_ACTION_ONE": False # ic3net agents always talk, as the reference does in Traffic Junction
-"LR": 0.001
+"LR": 0.001 # the reference's commands
 "GAMMA": 1.0
 "VALUE_COEF": 0.01
 "ENT_COEF": 0.0

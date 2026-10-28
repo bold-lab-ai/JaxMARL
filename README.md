@@ -78,6 +78,8 @@ We follow CleanRL's philosophy of providing single file implementations which ca
 | TransfQMIX | [Paper](https://www.southampton.ac.uk/~eg/AAMAS2023/pdfs/p1679.pdf) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/QLearning) |
 | SHAQ | [Paper](https://arxiv.org/abs/2105.15013) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/QLearning) |
 | PQN-VDN | [Paper](https://arxiv.org/abs/2407.04811) | [Source](https://github.com/mttga/purejaxql) |
+| CommNet | [Paper](https://arxiv.org/abs/1605.07736) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) |
+| IC3Net | [Paper](https://arxiv.org/abs/1812.09755) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) |
 
 <h2 name="install" id="install">Installation 🧗 </h2>
 

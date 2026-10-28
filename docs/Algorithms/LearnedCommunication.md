@@ -18,7 +18,7 @@ python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_mediu
 python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_easy BASELINE=iric alg.LR=0.002
 ```
 
-The configurations are the IC3Net paper's easy, medium and hard settings of `traffic_junction_grid` and `predator_prey_grid`, with the reference's training settings. Any environment with homogeneous agents and discrete actions works: all agents share parameters.
+The configurations are the IC3Net paper's easy, medium and hard settings of `traffic_junction_grid` and `predator_prey_grid`, with the training settings of the reference's commands (see [Settings](#settings)). The script runs on any environment with homogeneous agents and discrete actions, since all agents share parameters; it has only been trained on these two.
 
 | Key | Meaning |
 | --- | --- |
@@ -28,26 +28,42 @@ The configurations are the IC3Net paper's easy, medium and hard settings of `tra
 | `COMM_PASSES` | Communication rounds per step |
 | `COMM_ACTION_ONE` | IC3Net agents always communicate; the reference sets it for Traffic Junction |
 | `DETACH_GAP` | Steps of backpropagation through time |
-| `CURRICULUM` | Optional. Raises the environment argument `KEY` from `START` to `END` in steps of `STEP`, between the fractions `BEGIN` and `FINISH` of training. The Traffic Junction configurations raise `add_rate` as the reference does |
+| `CURRICULUM` | Optional. Raises the environment argument `KEY` from `START` to `END` in steps of `STEP`, between the fractions `BEGIN` and `FINISH` of training. The Traffic Junction configurations raise `add_rate` as the paper does |
+| `SEED_CHUNK` | Trains the `NUM_SEEDS` seeds this many at a time, to fit in memory, with the same seeds as all at once |
 
 ## ⚙️ Implementation details
 
-The tests in `tests/baselines/test_ic3net.py` check the returns and one step of the policies against NumPy ports of the reference's loops. As in the reference:
+The tests in `tests/baselines/test_ic3net.py` check the returns, one step of the policies, and the loss and its gradients over a trajectory against transliterations of the reference's loops. They also check the rollout's timing of the alive and talk inputs, the optimizer and the curriculum. As in the reference:
 
 - Each update trains on whole episodes, with Monte Carlo returns and RMSprop (`alpha=0.97`, `eps=1e-6`) without gradient clipping. Losses are summed over agents and averaged over environment steps.
 - With `MEAN_RATIO` below 1, an agent's own return ends when its episode does: a car that leaves Traffic Junction does not inherit the rewards of the next car in its slot.
-- Agents that are dead (`info["alive"]`, when the environment reports it) or silent neither send nor receive messages, and dead agents are masked out of the loss. An IC3Net agent's choice to communicate takes effect at the next step; no agent communicates at the first.
-- Traffic Junction trains with the reference's curriculum: `add_rate` starts at the paper's lower value and rises in steps of 0.01 between epochs 250 and 1,250 of 2,000. Without it, all four methods settle on never braking.
+- Agents that are dead (`info["alive"]`, when the environment reports it) or silent neither send nor receive messages. An IC3Net agent's choice to communicate takes effect at the next step; no agent communicates at the first.
+- Each step's loss is masked with the agents alive after it. A car's final step on the road is therefore not trained, and a car that enters during a step is trained on that step, though it acted on an empty observation.
+- Traffic Junction trains with the paper's curriculum: `add_rate` starts at the paper's lower value and rises in steps of 0.01 between epochs 250 and 1,250 of 2,000. In short pilot runs without it (2 seeds, 2e7 steps), all four methods stayed at about 3.4% success.
 - Reported statistics come from the training episodes.
 
 Differences from the reference:
 
-- Layers use the orthogonal initialisation of the other JaxMARL baselines rather than PyTorch's defaults.
-- Every update runs a fixed number of episodes; the reference runs 16 processes that each collect at least 500 steps of whole episodes. The configurations match the reference's batch size for episodes that last until the time limit. Traffic Junction episodes always do, but Predator-Prey episodes end once every predator reaches the prey, so as the agents improve, the batch shrinks to fewer steps than the reference's.
+- Layers use the orthogonal initialisation of the other JaxMARL baselines, and the LSTM flax's defaults, rather than PyTorch's defaults. Computation is in float32; the reference uses float64.
+- Every update runs a fixed number of episodes; the reference runs 16 processes that each collect at least 500 steps of whole episodes, which is 8,000 steps per update on easy, 8,320 on medium and 8,960 on hard when episodes last until the time limit. The configurations run 8,000. Traffic Junction episodes always last until the time limit, but Predator-Prey episodes end once every predator reaches the prey, so as the agents improve, the batch shrinks well below the reference's.
+- The entropy term is masked like the rest of the loss; the reference sums it over all agents. It is unused with the default `ENT_COEF` of 0.
+- The curriculum changes level one epoch later than the reference's, and on easy it reaches 0.3, where floating-point rounding stops the reference's at 0.29.
+
+### Settings
+
+Where the paper and the reference's training commands disagree, the configurations follow the commands, except for the medium Traffic Junction curriculum:
+
+| Setting | Paper | Reference's commands | Configurations |
+| --- | --- | --- | --- |
+| Traffic Junction learning rate | 0.003 | 0.001 | 0.001 |
+| Predator-Prey training | 1,000 epochs | 2,000 epochs | 2,000 epochs |
+| IC and IRIC network | LSTM | tanh RNN | tanh RNN |
+| Hard Traffic Junction `max_steps` | 60 | 80 | 80 |
+| Medium Traffic Junction `add_rate` | 0.05 to 0.2 | 0.05 to 0.02, which disables the curriculum | 0.05 to 0.2 |
 
 ## 📈 Results
 
-All four methods on the medium versions, with the configurations above: 20 seeds each, trained for 1.6e8 environment steps (20,000 updates, the reference's 2,000 epochs). Values are the mean ± standard deviation over seeds of the training episodes in the last 2% of updates. The paper's values are the mean over 5 runs.
+All four methods on the medium versions, with the configurations above: 20 seeds each, trained for 20,000 updates of 8,000 simulated steps (the reference's 2,000 epochs; the paper trains Predator-Prey for 1,000). Values are the mean ± standard deviation over seeds of the training episodes in the last 2% of updates. The paper's values are over 5 runs; it doesn't say what its ± is.
 
 | Method | Traffic Junction success (%) | Paper | Predator-Prey steps | Paper |
 | --- | --- | --- | --- | --- |
@@ -57,20 +73,22 @@ All four methods on the medium versions, with the configurations above: 20 seeds
 | IC3Net | 67.0 ± 26.8 | 89.3 ± 2.5 | 16.3 ± 1.5 | 13.0 ± 0.02 |
 
 - Without communication, IC and IRIC match the paper on both tasks. On Traffic Junction, 39 of their 40 seeds end at 3.2–3.5% success.
-- On Traffic Junction, the methods rank as in the paper, but the communicating ones vary far more across seeds. Eight IC3Net seeds exceed 85% success and three stay below 25%; IC3Net's mean success was still rising at the end of training. Eight CommNet seeds stay below 6%, four reach 11–26% and eight reach 46–74%.
-- On Predator-Prey, CommNet matches the paper but IC3Net does not overtake it. Part of the gap comes from the smaller batches of short episodes: with `NUM_ENVS=600`, which brings the batch close to the reference's 8,000 steps, 4 seeds of CommNet take 13.1 ± 0.03 steps and IC3Net 15.1 ± 0.8. IC3Net's agents communicate at 70% of steps.
-- For comparison, IPPO and MAPPO on the same environments (see the environments' READMEs, 2e7 steps, greedy test episodes) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey.
+- On Traffic Junction, the methods rank as in the paper, but both communicating methods fall short of it, with a lower learning rate than the paper's (see [Settings](#settings)). IC3Net varies far more across seeds than the paper's ± suggests: eight seeds exceed 85% success and three stay below 25%, and its mean success was still rising at the end of training. Eight CommNet seeds stay below 6%, four reach 11–26% and eight reach 46–74%.
+- On Predator-Prey, CommNet comes close to the paper (19 of 20 seeds take 13.3–13.6 steps, one 19.8), but IC3Net does not overtake it; its agents communicate at 70% of steps. Batches nearer the reference's size help CommNet: with `alg.NUM_ENVS=600 alg.TOTAL_TIMESTEPS=4.8e8` (the same number of updates), 4 seeds of CommNet take 13.1 ± 0.03 steps. 4 seeds of IC3Net take 15.1 ± 0.8, within the spread of its 20 seeds, so that run doesn't settle whether batch size explains IC3Net's gap.
+- For comparison, IPPO and MAPPO on the same environments (see the environments' READMEs) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey. They train for 2e7 steps, without the curriculum, and report greedy test episodes.
 
-Wall time for 20 seeds on one L40S, run 10 at a time, including compilation:
+Wall time for 20 seeds on one L40S, with `SEED_CHUNK=10`, including compilation, and the simulated steps per second summed over seeds:
 
-| Method | Traffic Junction | Predator-Prey | Environment steps per second |
+| Method | Traffic Junction | Predator-Prey | Simulated steps per second |
 | --- | --- | --- | --- |
 | IC, IRIC | 18 min | 40 min | 3.0e6 (TJ), 1.3e6 (PP) |
 | CommNet, IC3Net | 61–64 min | 62 min | 8.3e5–8.7e5 |
 
+The results come from these commands, for each `BASELINE`:
+
 ```bash
-python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_medium BASELINE=ic3net NUM_SEEDS=10
-python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_medium BASELINE=ic3net NUM_SEEDS=10
+python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_medium BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
+python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_medium BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
 ```
 
 ## Citation
