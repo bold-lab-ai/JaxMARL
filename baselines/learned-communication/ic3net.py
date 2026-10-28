@@ -17,7 +17,7 @@ observation and action spaces.
 """
 
 import os
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 import distrax
 import flax.linen as nn
@@ -142,7 +142,25 @@ def compute_returns(reward, done, completed, gamma, mean_ratio):
     return returns
 
 
-def make_train(config):
+def make_optimizer(lr):
+    """PyTorch's RMSprop, with the reference's alpha and eps."""
+    return optax.rmsprop(lr, decay=0.97, eps=1e-6, eps_in_sqrt=False)
+
+
+class Learner(NamedTuple):
+    network: CommPolicy
+    init_params: Callable  # rng -> params
+    rollout: Callable  # (params, rng, curriculum level) -> Transition
+    returns: Callable  # Transition -> returns
+    loss: Callable  # (params, Transition, returns) -> (loss, aux)
+    curriculum_level: Callable  # update -> curriculum level
+    curriculum_values: np.ndarray
+    info_keys: tuple
+    gated: bool
+    always_talk: bool
+
+
+def make_learner(config):
     env = jaxmarl.make(config["ENV_NAME"], **config["ENV_KWARGS"])
     communicate, gated, default_mean_ratio = BASELINES[config["BASELINE"]]
     mean_ratio = config.get("MEAN_RATIO")
@@ -202,6 +220,15 @@ def make_train(config):
         shape = (*batch_shape, num_agents, config["HIDDEN_SIZE"])
         return jnp.zeros(shape), jnp.zeros(shape)
 
+    def init_params(rng):
+        return network.init(
+            rng,
+            init_carry((1,)),
+            jnp.zeros((1, num_agents, obs_dim)),
+            jnp.ones((1, num_agents)),
+            jnp.ones((1, num_agents)),
+        )
+
     def batchify(x):
         return jnp.stack([x[a].reshape(num_envs, -1) for a in agents], axis=1)
 
@@ -211,133 +238,151 @@ def make_train(config):
         actions = {a: env.action_space(a).sample(key) for a in agents}
         return env.step(key, state, actions)[-1]
 
-    info_keys = jax.eval_shape(_info, jax.random.PRNGKey(0)).keys()
+    info_keys = tuple(jax.eval_shape(_info, jax.random.PRNGKey(0)).keys())
+
+    def rollout(params, rng, level):
+        """Run every environment from reset for NUM_STEPS steps."""
+        rng, _rng = jax.random.split(rng)
+        obs, env_state = jax.vmap(env.reset)(jax.random.split(_rng, num_envs))
+
+        def _env_step(carry, _):
+            hidden, env_state, obs, alive, talk, valid, rng = carry
+            obs_batch = batchify(obs)
+            hidden, logits, talk_logits, _ = network.apply(
+                params, hidden, obs_batch, alive, talk
+            )
+            rng, key_act, key_talk, key_step = jax.random.split(rng, 4)
+            action = distrax.Categorical(logits=logits).sample(seed=key_act)
+            talk_action = jnp.zeros_like(action)
+            if gated:
+                talk_action = distrax.Categorical(logits=talk_logits).sample(
+                    seed=key_talk
+                )
+            obs, env_state, reward, done, info = jax.lax.switch(
+                level,
+                env_steps,
+                jax.random.split(key_step, num_envs),
+                env_state,
+                {a: action[:, i] for i, a in enumerate(agents)},
+            )
+            ones = jnp.ones((num_envs, num_agents))
+            none = jnp.zeros((num_envs, num_agents), dtype=bool)
+            alive_after = info["alive"] if "alive" in info_keys else ones
+            alive_after = alive_after.astype(jnp.float32)
+            transition = Transition(
+                obs=obs_batch,
+                alive=alive,
+                talk=talk,
+                action=action,
+                talk_action=talk_action,
+                reward=jnp.stack([reward[a] for a in agents], axis=1),
+                alive_after=alive_after,
+                completed=info["completed"] if "completed" in info_keys else none,
+                valid=valid,
+                done=done["__all__"],
+                success=info["success"][:, 0] if "success" in info_keys else valid,
+            )
+            talk = ones if always_talk else talk_action.astype(jnp.float32)
+            valid = valid & ~done["__all__"]
+            carry = (hidden, env_state, obs, alive_after, talk, valid, rng)
+            return carry, transition
+
+        carry = (
+            init_carry((num_envs,)),
+            env_state,
+            obs,
+            # As in the reference, every agent counts as alive and none talks
+            # at the first step.
+            jnp.ones((num_envs, num_agents)),
+            jnp.zeros((num_envs, num_agents)),
+            jnp.ones(num_envs, dtype=bool),
+            rng,
+        )
+        _, traj = jax.lax.scan(_env_step, carry, None, num_steps)
+        return traj
+
+    def returns(traj):
+        return compute_returns(
+            traj.reward, traj.done, traj.completed, config["GAMMA"], mean_ratio
+        )
+
+    def loss(params, traj, returns):
+        def _step(hidden, xs):
+            t, obs, alive, talk = xs
+            hidden, logits, talk_logits, value = network.apply(
+                params, hidden, obs, alive, talk
+            )
+            # Truncated backpropagation through time, as the reference.
+            cut = (t + 1) % config["DETACH_GAP"] == 0
+            hidden = jax.tree.map(
+                lambda x: jnp.where(cut, jax.lax.stop_gradient(x), x), hidden
+            )
+            return hidden, (logits, talk_logits, value)
+
+        _, (logits, talk_logits, value) = jax.lax.scan(
+            _step,
+            init_carry((num_envs,)),
+            (jnp.arange(num_steps), traj.obs, traj.alive, traj.talk),
+        )
+        pi = distrax.Categorical(logits=logits)
+        log_prob = pi.log_prob(traj.action)
+        entropy = pi.entropy()
+        if gated:
+            talk_pi = distrax.Categorical(logits=talk_logits)
+            log_prob = log_prob + talk_pi.log_prob(traj.talk_action)
+            entropy = entropy + talk_pi.entropy()
+
+        # The reference masks each step with the agents alive after it, and
+        # averages over environment steps.
+        mask = traj.valid[..., None] * traj.alive_after
+        num_env_steps = traj.valid.sum()
+        advantage = returns - jax.lax.stop_gradient(value)
+        actor_loss = -(advantage * log_prob * mask).sum() / num_env_steps
+        value_loss = ((value - returns) ** 2 * mask).sum() / num_env_steps
+        entropy = (entropy * mask).sum() / num_env_steps
+        loss = (
+            actor_loss
+            + config["VALUE_COEF"] * value_loss
+            - config["ENT_COEF"] * entropy
+        )
+        return loss, (actor_loss, value_loss, entropy)
+
+    return Learner(
+        network=network,
+        init_params=init_params,
+        rollout=rollout,
+        returns=returns,
+        loss=loss,
+        curriculum_level=curriculum_level,
+        curriculum_values=values,
+        info_keys=info_keys,
+        gated=gated,
+        always_talk=always_talk,
+    )
+
+
+def make_train(config):
+    learner = make_learner(config)
+    num_envs, num_steps = config["NUM_ENVS"], config["NUM_STEPS"]
+    curriculum = config.get("CURRICULUM")
 
     def train(rng):
+        original_seed = rng[0]
         rng, _rng = jax.random.split(rng)
-        params = network.init(
-            _rng,
-            init_carry((1,)),
-            jnp.zeros((1, num_agents, obs_dim)),
-            jnp.ones((1, num_agents)),
-            jnp.ones((1, num_agents)),
+        params = learner.init_params(_rng)
+        tx = make_optimizer(config["LR"])
+        train_state = TrainState.create(
+            apply_fn=learner.network.apply, params=params, tx=tx
         )
-        # PyTorch's RMSprop, with the reference's alpha and eps.
-        tx = optax.rmsprop(config["LR"], decay=0.97, eps=1e-6, eps_in_sqrt=False)
-        train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
-
-        def _rollout(params, rng, level):
-            """Run every environment from reset for NUM_STEPS steps."""
-            rng, _rng = jax.random.split(rng)
-            obs, env_state = jax.vmap(env.reset)(jax.random.split(_rng, num_envs))
-
-            def _env_step(carry, _):
-                hidden, env_state, obs, alive, talk, valid, rng = carry
-                obs_batch = batchify(obs)
-                hidden, logits, talk_logits, _ = network.apply(
-                    params, hidden, obs_batch, alive, talk
-                )
-                rng, key_act, key_talk, key_step = jax.random.split(rng, 4)
-                action = distrax.Categorical(logits=logits).sample(seed=key_act)
-                talk_action = jnp.zeros_like(action)
-                if gated:
-                    talk_action = distrax.Categorical(logits=talk_logits).sample(
-                        seed=key_talk
-                    )
-                obs, env_state, reward, done, info = jax.lax.switch(
-                    level,
-                    env_steps,
-                    jax.random.split(key_step, num_envs),
-                    env_state,
-                    {a: action[:, i] for i, a in enumerate(agents)},
-                )
-                ones = jnp.ones((num_envs, num_agents))
-                none = jnp.zeros((num_envs, num_agents), dtype=bool)
-                alive_after = info["alive"] if "alive" in info_keys else ones
-                alive_after = alive_after.astype(jnp.float32)
-                transition = Transition(
-                    obs=obs_batch,
-                    alive=alive,
-                    talk=talk,
-                    action=action,
-                    talk_action=talk_action,
-                    reward=jnp.stack([reward[a] for a in agents], axis=1),
-                    alive_after=alive_after,
-                    completed=info["completed"] if "completed" in info_keys else none,
-                    valid=valid,
-                    done=done["__all__"],
-                    success=info["success"][:, 0] if "success" in info_keys else valid,
-                )
-                talk = ones if always_talk else talk_action.astype(jnp.float32)
-                valid = valid & ~done["__all__"]
-                carry = (hidden, env_state, obs, alive_after, talk, valid, rng)
-                return carry, transition
-
-            carry = (
-                init_carry((num_envs,)),
-                env_state,
-                obs,
-                # As in the reference, every agent counts as alive and none talks
-                # at the first step.
-                jnp.ones((num_envs, num_agents)),
-                jnp.zeros((num_envs, num_agents)),
-                jnp.ones(num_envs, dtype=bool),
-                rng,
-            )
-            _, traj = jax.lax.scan(_env_step, carry, None, num_steps)
-            return traj
-
-        def _loss(params, traj, returns):
-            def _step(hidden, xs):
-                t, obs, alive, talk = xs
-                hidden, logits, talk_logits, value = network.apply(
-                    params, hidden, obs, alive, talk
-                )
-                # Truncated backpropagation through time, as the reference.
-                cut = (t + 1) % config["DETACH_GAP"] == 0
-                hidden = jax.tree.map(
-                    lambda x: jnp.where(cut, jax.lax.stop_gradient(x), x), hidden
-                )
-                return hidden, (logits, talk_logits, value)
-
-            _, (logits, talk_logits, value) = jax.lax.scan(
-                _step,
-                init_carry((num_envs,)),
-                (jnp.arange(num_steps), traj.obs, traj.alive, traj.talk),
-            )
-            pi = distrax.Categorical(logits=logits)
-            log_prob = pi.log_prob(traj.action)
-            entropy = pi.entropy()
-            if gated:
-                talk_pi = distrax.Categorical(logits=talk_logits)
-                log_prob = log_prob + talk_pi.log_prob(traj.talk_action)
-                entropy = entropy + talk_pi.entropy()
-
-            # The reference masks each step with the agents alive after it, and
-            # averages over environment steps.
-            mask = traj.valid[..., None] * traj.alive_after
-            num_env_steps = traj.valid.sum()
-            advantage = returns - jax.lax.stop_gradient(value)
-            actor_loss = -(advantage * log_prob * mask).sum() / num_env_steps
-            value_loss = ((value - returns) ** 2 * mask).sum() / num_env_steps
-            entropy = (entropy * mask).sum() / num_env_steps
-            loss = (
-                actor_loss
-                + config["VALUE_COEF"] * value_loss
-                - config["ENT_COEF"] * entropy
-            )
-            return loss, (actor_loss, value_loss, entropy)
 
         def _update_step(runner_state, update):
             train_state, rng = runner_state
             rng, _rng = jax.random.split(rng)
-            level = curriculum_level(update)
-            traj = _rollout(train_state.params, _rng, level)
-            returns = compute_returns(
-                traj.reward, traj.done, traj.completed, config["GAMMA"], mean_ratio
-            )
+            level = learner.curriculum_level(update)
+            traj = learner.rollout(train_state.params, _rng, level)
+            returns = learner.returns(traj)
             (loss, (actor_loss, value_loss, entropy)), grads = jax.value_and_grad(
-                _loss, has_aux=True
+                learner.loss, has_aux=True
             )(train_state.params, traj, returns)
             train_state = train_state.apply_gradients(grads=grads)
 
@@ -357,12 +402,14 @@ def make_train(config):
                 "entropy": entropy,
             }
             if curriculum:
-                metrics[curriculum["KEY"]] = jnp.asarray(values)[level]
-            if "success" in info_keys:
+                metrics[curriculum["KEY"]] = jnp.asarray(learner.curriculum_values)[
+                    level
+                ]
+            if "success" in learner.info_keys:
                 metrics["success"] = traj.success[last, jnp.arange(num_envs)].mean()
-            if gated and not always_talk:
+            if learner.gated and not learner.always_talk:
                 metrics["comm_rate"] = (traj.talk_action * valid[..., None]).sum() / (
-                    length.sum() * num_agents
+                    length.sum() * traj.talk_action.shape[-1]
                 )
 
             if config["WANDB_MODE"] != "disabled":
@@ -381,7 +428,6 @@ def make_train(config):
 
             return (train_state, rng), metrics
 
-        original_seed = rng[0]
         runner_state, metrics = jax.lax.scan(
             _update_step, (train_state, rng), jnp.arange(config["NUM_UPDATES"])
         )
@@ -407,7 +453,14 @@ def main(config):
     rng = jax.random.PRNGKey(config["SEED"])
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
     train_vjit = jax.jit(jax.vmap(make_train(config)))
-    outs = jax.block_until_ready(train_vjit(rngs))
+    # SEED_CHUNK trains the seeds that many at a time, to fit in memory; the
+    # seeds are the same as with all of them at once.
+    chunk = config.get("SEED_CHUNK") or config["NUM_SEEDS"]
+    chunks = [
+        jax.block_until_ready(train_vjit(rngs[i : i + chunk]))
+        for i in range(0, config["NUM_SEEDS"], chunk)
+    ]
+    outs = jax.tree.map(lambda *x: jnp.concatenate(x), *chunks)
 
     final = jax.tree.map(lambda x: x[:, -1], outs["metrics"])
     for k in ["returned_episode_returns", "returned_episode_lengths", "success"]:

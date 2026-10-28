@@ -2,6 +2,7 @@
 "BASELINE": "ic3net" # ic, iric, commnet or ic3net
 "MEAN_RATIO": null # weight of the team's mean return; null uses the baseline's (1 for ic and commnet, 0 for iric and ic3net)
 "NUM_SEEDS": 1 # number of vmapped seeds
+"SEED_CHUNK": null # train the seeds this many at a time, to fit in memory; null trains them all at once
 "SEED": 0
 
 # wandb params
