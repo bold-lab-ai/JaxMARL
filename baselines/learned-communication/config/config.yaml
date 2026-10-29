@@ -4,6 +4,8 @@
 "NUM_SEEDS": 1 # number of vmapped seeds
 "SEED_CHUNK": null # train the seeds this many at a time, to fit in memory; null trains them all at once
 "LSTM": True # ic and iric use an LSTM, as in the paper; False gives the tanh RNN of the reference's commands. commnet and ic3net always use one
+"PAD_SPACES": False # pad observations to the largest agent's, followed by a one-hot agent id, and action spaces to the largest, masking each agent's extra actions
+"ACTION_SCALE": 1.0 # continuous actions: scale before clipping to [-1, 1] and mapping onto the action space, as in the reference
 "SEED": 0
 
 # wandb params

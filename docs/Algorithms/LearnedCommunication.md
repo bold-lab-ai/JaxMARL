@@ -13,8 +13,10 @@ Supported environments:
 - Traffic Junction (`traffic_junction_grid`): the paper's easy, medium and hard versions
 - Predator-Prey (`predator_prey_grid`): the paper's easy, medium and hard settings
 - MPE Simple Reference
+- MPE Speaker-Listener, whose agents have different observations and actions, with `PAD_SPACES` (`ic3net_mpe_speaker_listener`)
+- MPE Simple Spread with continuous actions (`ic3net_mpe_simple_spread_continuous`)
 
-All agents share parameters, so other environments need homogeneous agents and discrete actions, and their optional `alive`, `completed` and `success` info entries must hold one value per agent.
+All agents share parameters, so other environments need agents with the same observation and action spaces, or `PAD_SPACES=True`, and action spaces that are all discrete or all continuous. Their optional `alive`, `completed` and `success` info entries must hold one value per agent. Every agent communicates with every other and, for IC and CommNet, is trained on the mean return of all of them, so the script doesn't separate competing teams. In two-update smoke tests the script also runs, untuned and without results, on MPE Simple and Simple Spread, Switch Riddle, SMAX, STORM (`storm_np`), Hanabi, Overcooked, Overcooked V2, Coin Game and JaxNav with discrete actions. It doesn't use the action masks of Hanabi and SMAX.
 
 ## ⚙️ Implementation Details
 
@@ -59,6 +61,8 @@ Take a look at [`config.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/base
 | `DETACH_GAP` | Steps of backpropagation through time |
 | `SEED_CHUNK` | Trains the `NUM_SEEDS` seeds this many at a time, to fit in memory, with the same seeds as all at once |
 | `LSTM` | By default, IC and IRIC use an LSTM, as in the paper; `False` gives the tanh RNN of the reference's commands. CommNet and IC3Net always use an LSTM |
+| `PAD_SPACES` | Pads every agent's observation to the largest, followed by a one-hot agent id, and every agent's action space to the largest, masking the actions or action dimensions it doesn't have. Needed when agents have different spaces |
+| `ACTION_SCALE` | For continuous actions, which use a Gaussian policy as in the reference: samples are multiplied by it, clipped to [-1, 1] and mapped onto the action space's bounds |
 
 ### Configurations
 
@@ -130,6 +134,21 @@ The curriculum doesn't close the gaps to the paper. It helps CommNet on medium, 
 
 Learned communication doesn't help here: IC and IRIC can already communicate through the environment's message actions. A few seeds of IRIC, CommNet and IC3Net end near -26, where training starts, and all four methods were still improving at the end.
 
+### MPE with padding and continuous actions
+
+`ic3net_mpe_speaker_listener` and `ic3net_mpe_simple_spread_continuous` use the same, untuned, settings as `ic3net_mpe_simple_reference`. Episode return at the end of training, with the return in the first 2% of updates in brackets:
+
+| Method | Speaker-Listener (`PAD_SPACES`) | Simple Spread, continuous |
+| --- | --- | --- |
+| IC | -9.0 ± 2.0 [-9.9, -8.2] (-23.0) | -12.5 ± 0.5 [-12.7, -12.3] (-22.3) |
+| IRIC | -9.0 ± 2.0 [-9.9, -8.2] (-23.0) | -12.6 ± 0.6 [-12.8, -12.3] (-22.5) |
+| CommNet | -23.5 ± 12.5 [-28.6, -18.1] (-33.6) | -18.0 ± 2.1 [-19.0, -17.2] (-24.7) |
+| IC3Net | -11.4 ± 7.9 [-15.1, -8.6] (-25.6) | -12.6 ± 0.5 [-12.8, -12.4] (-22.9) |
+
+- Every method improves on both tasks. CommNet ends lowest on both, as on Simple Reference; on Speaker-Listener, some of its seeds end near where training starts (worst seed -33.5).
+- IC and IRIC end identically on Speaker-Listener, where both agents receive the same reward, so the team's mean return and an agent's own are the same.
+- IC3Net agents communicate at 14% of steps on Speaker-Listener and 1% on Simple Spread.
+
 ### Reproducing the results
 
 Wall time for 20 seeds on one L40S, including compilation, with `SEED_CHUNK=10` (5 on hard):
@@ -139,6 +158,8 @@ Wall time for 20 seeds on one L40S, including compilation, with `SEED_CHUNK=10` 
 | IC, IRIC | 26 min | 56 min | 132 min | 8 min | 28 min | 203 min | 5–6 min |
 | CommNet, IC3Net | 28–30 min | 61–64 min | 143–148 min | 8–9 min | 31 min | 206–207 min | 5–6 min |
 
+Speaker-Listener takes 5–6 minutes and continuous Simple Spread 7.5–9.
+
 These commands train the same seeds, for each `BASELINE`, and print the statistics of the tables. On a GPU, XLA's default kernels aren't deterministic, so two runs with the same seed drift apart; `XLA_FLAGS=--xla_gpu_deterministic_ops=true` makes them identical.
 
 ```bash
@@ -146,6 +167,8 @@ python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_me
 python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_medium BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
 python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_hard BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=5
 python baselines/learned-communication/ic3net.py +alg=ic3net_mpe_simple_reference BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
+python baselines/learned-communication/ic3net.py +alg=ic3net_mpe_speaker_listener BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
+python baselines/learned-communication/ic3net.py +alg=ic3net_mpe_simple_spread_continuous BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
 ```
 
 ## Citation

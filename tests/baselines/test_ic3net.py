@@ -281,6 +281,36 @@ def test_rollout_feeds_the_previous_step_into_communication(baseline, comm_actio
     assert np.all(traj.done[19]) and not np.any(traj.done[:19])
 
 
+def _random_trajectory(rng, obs_dim, action):
+    """A trajectory with random inputs, in which the first environment's
+    episode ends early; action is (steps, envs, agents, ...)."""
+    steps, envs, agents = action.shape[:3]
+    alive_after = (rng.random((steps, envs, agents)) < 0.7).astype(np.float32)
+    done = np.zeros((steps, envs), dtype=bool)
+    done[5, 0] = True
+    valid = np.concatenate(
+        [np.ones((1, envs), bool), ~np.cumsum(done, 0)[:-1].astype(bool)]
+    )
+    traj = ic3net.Transition(
+        obs=rng.normal(size=(steps, envs, agents, obs_dim)).astype(np.float32),
+        alive=np.concatenate(
+            [np.ones((1, envs, agents), np.float32), alive_after[:-1]]
+        ),
+        talk=np.concatenate(
+            [np.zeros((1, envs, agents)), rng.integers(0, 2, (steps - 1, envs, agents))]
+        ).astype(np.float32),
+        action=action,
+        talk_action=rng.integers(0, 2, (steps, envs, agents)),
+        reward=rng.normal(size=(steps, envs, agents)).astype(np.float32),
+        alive_after=alive_after,
+        completed=rng.random((steps, envs, agents)) < 0.1,
+        valid=valid,
+        done=done,
+        success=valid,
+    )
+    return jax.tree.map(jnp.asarray, traj)
+
+
 def _reference_loss(network, params, traj, returns, gated, value_coef, detach_gap):
     """The reference's loss (`Trainer.get_episode` and `compute_grad`), one
     environment and one step at a time."""
@@ -298,9 +328,19 @@ def _reference_loss(network, params, traj, returns, gated, value_coef, detach_ga
                 traj.alive[t, e][None],
                 traj.talk[t, e][None],
             )
-            log_prob = jnp.take_along_axis(
-                jax.nn.log_softmax(logits[0]), traj.action[t, e][:, None], -1
-            )[:, 0]
+            if isinstance(logits, tuple):
+                # The reference's `normal_log_density`.
+                mean, log_std = logits[0][0], logits[1][0]
+                x = traj.action[t, e]
+                log_prob = (
+                    -((x - mean) ** 2) / (2 * jnp.exp(log_std) ** 2)
+                    - 0.5 * np.log(2 * np.pi)
+                    - log_std
+                ).sum(-1)
+            else:
+                log_prob = jnp.take_along_axis(
+                    jax.nn.log_softmax(logits[0]), traj.action[t, e][:, None], -1
+                )[:, 0]
             if gated:
                 log_prob = (
                     log_prob
@@ -333,36 +373,13 @@ def test_loss_and_gradients_match_reference(baseline, lstm):
     learner = ic3net.make_learner(config)
     params = learner.init_params(jax.random.PRNGKey(0))
     rng = np.random.default_rng(0)
-    steps, envs, agents, obs_dim = (
-        9,
-        3,
-        5,
+    steps, envs, agents = 9, 3, 5
+    traj = _random_trajectory(
+        rng,
         params["params"]["encoder"]["kernel"].shape[0],
+        rng.integers(0, 2, (steps, envs, agents)),
     )
-    alive_after = (rng.random((steps, envs, agents)) < 0.7).astype(np.float32)
-    done = np.zeros((steps, envs), dtype=bool)
-    done[5, 0] = True  # the first environment's episode ends early
-    valid = np.concatenate(
-        [np.ones((1, envs), bool), ~np.cumsum(done, 0)[:-1].astype(bool)]
-    )
-    traj = ic3net.Transition(
-        obs=rng.normal(size=(steps, envs, agents, obs_dim)).astype(np.float32),
-        alive=np.concatenate(
-            [np.ones((1, envs, agents), np.float32), alive_after[:-1]]
-        ),
-        talk=np.concatenate(
-            [np.zeros((1, envs, agents)), rng.integers(0, 2, (steps - 1, envs, agents))]
-        ).astype(np.float32),
-        action=rng.integers(0, 2, (steps, envs, agents)),
-        talk_action=rng.integers(0, 2, (steps, envs, agents)),
-        reward=rng.normal(size=(steps, envs, agents)).astype(np.float32),
-        alive_after=alive_after,
-        completed=rng.random((steps, envs, agents)) < 0.1,
-        valid=valid,
-        done=done,
-        success=valid,
-    )
-    traj = jax.tree.map(jnp.asarray, traj)
+    done = np.asarray(traj.done)
 
     # The returns come from the trajectory's own done and completed.
     returns = learner.returns(traj)
@@ -438,3 +455,137 @@ def test_script_runs_on_predator_prey():
     )
     assert result.returncode == 0, result.stderr
     assert "returned_episode_lengths" in result.stdout
+
+
+def test_different_spaces_need_padding():
+    # The speaker observes 3 values and has 3 actions; the listener 11 and 5.
+    config = _config(
+        "commnet", ENV_NAME="MPE_simple_speaker_listener_v4", ENV_KWARGS={}
+    )
+    with pytest.raises(ValueError, match="PAD_SPACES"):
+        ic3net.make_learner(config)
+
+
+def test_padding_pads_observations_and_masks_actions():
+    config = _config(
+        "commnet",
+        ENV_NAME="MPE_simple_speaker_listener_v4",
+        ENV_KWARGS={},
+        PAD_SPACES=True,
+    )
+    learner = ic3net.make_learner(config)
+    params = learner.init_params(jax.random.PRNGKey(0))
+    traj = jax.tree.map(np.asarray, learner.rollout(params, jax.random.PRNGKey(1)))
+
+    # Observations are padded to the listener's 11 values and followed by a
+    # one-hot agent id; the speaker comes first.
+    assert traj.obs.shape[-2:] == (2, 11 + 2)
+    speaker, listener = traj.obs[..., 0, :], traj.obs[..., 1, :]
+    assert np.all(speaker[..., 3:11] == 0) and np.any(speaker[..., :3] != 0)
+    np.testing.assert_array_equal(speaker[..., 11:], np.broadcast_to([1, 0], speaker[..., 11:].shape))
+    np.testing.assert_array_equal(listener[..., 11:], np.broadcast_to([0, 1], listener[..., 11:].shape))
+    # The speaker never takes the listener's extra actions, which the nearly
+    # uniform initial policy would otherwise pick 40% of the time.
+    assert traj.action[..., 0].max() < 3 and traj.action[..., 1].max() >= 3
+
+    # Each agent's log probability and entropy are over its own actions.
+    logits = jax.random.normal(jax.random.PRNGKey(2), (4, 2, 5))
+    action = jnp.array([[2, 4]] * 4)
+    log_prob, entropy = learner.log_prob_entropy(logits, action)
+    for i, n in enumerate([3, 5]):
+        own = jax.nn.log_softmax(logits[:, i, :n])
+        np.testing.assert_allclose(log_prob[:, i], own[jnp.arange(4), action[:, i]], rtol=1e-6)
+        np.testing.assert_allclose(entropy[:, i], -(jnp.exp(own) * own).sum(-1), rtol=1e-5)
+
+
+def _continuous_config(baseline, **overrides):
+    return _config(
+        baseline,
+        ENV_NAME="MPE_simple_spread_v3",
+        ENV_KWARGS={"action_type": "Continuous"},
+        **overrides,
+    )
+
+
+def test_continuous_actions_map_onto_the_space_as_the_reference():
+    # The reference's `translate_action`: scale, clip to [-1, 1], then map onto
+    # [low, high], here [0, 1].
+    learner = ic3net.make_learner(_continuous_config("commnet", NUM_ENVS=1, ACTION_SCALE=2.0))
+    raw = jnp.broadcast_to(jnp.array([-1.0, 0.0, 0.3, 0.6, 2.0]), (1, 3, 5))
+    actions = learner.env_actions(raw)
+    for a in actions.values():
+        np.testing.assert_allclose(a[0], [0.0, 0.5, 0.8, 1.0, 1.0], rtol=1e-6)
+
+    params = learner.init_params(jax.random.PRNGKey(0))
+    traj = jax.tree.map(np.asarray, learner.rollout(params, jax.random.PRNGKey(1)))
+    assert traj.action.shape[-2:] == (3, 5) and traj.action.dtype == np.float32
+    # Samples are unbounded; the initial standard deviation is 1.
+    assert traj.action.min() < 0 and traj.action.max() > 1
+    assert 0.8 < traj.action.std() < 1.2
+
+
+@pytest.mark.parametrize("baseline", ["ic", "commnet", "ic3net"])
+def test_continuous_loss_and_gradients_match_reference(baseline):
+    config = _continuous_config(baseline, NUM_STEPS=9)
+    learner = ic3net.make_learner(config)
+    params = learner.init_params(jax.random.PRNGKey(0))
+    assert "log_std" in params["params"]
+    # A non-zero log standard deviation, so that its gradient is checked.
+    params["params"]["log_std"] = jnp.linspace(-0.5, 0.5, 5)
+    rng = np.random.default_rng(0)
+    traj = _random_trajectory(
+        rng,
+        params["params"]["encoder"]["kernel"].shape[0],
+        rng.normal(size=(9, 3, 3, 5)).astype(np.float32),
+    )
+    returns = learner.returns(traj)
+
+    def port(params):
+        return learner.loss(params, traj, returns)[0]
+
+    def reference(params):
+        return _reference_loss(
+            learner.network,
+            params,
+            traj,
+            returns,
+            learner.gated,
+            config["VALUE_COEF"],
+            config["DETACH_GAP"],
+        )
+
+    with jax.default_matmul_precision("float32"):
+        loss, grads = jax.value_and_grad(port)(params)
+        ref_loss, ref_grads = jax.value_and_grad(reference)(params)
+    np.testing.assert_allclose(loss, ref_loss, rtol=1e-5)
+    jax.tree.map(
+        lambda a, b: np.testing.assert_allclose(a, b, rtol=1e-4, atol=1e-6),
+        grads,
+        ref_grads,
+    )
+
+
+@pytest.mark.parametrize(
+    "alg",
+    [
+        "ic3net_mpe_simple_reference",
+        "ic3net_mpe_speaker_listener",
+        "ic3net_mpe_simple_spread_continuous",
+    ],
+)
+def test_script_runs_on_mpe(alg):
+    result = subprocess.run(
+        [
+            sys.executable,
+            SCRIPT,
+            f"+alg={alg}",
+            "BASELINE=ic3net",
+            "NUM_SEEDS=2",
+            "alg.NUM_ENVS=4",
+            "alg.TOTAL_TIMESTEPS=400",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "returned_episode_returns" in result.stdout

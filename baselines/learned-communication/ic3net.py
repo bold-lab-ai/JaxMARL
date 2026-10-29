@@ -14,7 +14,9 @@ REINFORCE and a learned value baseline:
 
 IC and CommNet train every agent on the team's mean return, IRIC and IC3Net on
 its own (MEAN_RATIO). All agents share parameters, so they must have the same
-observation and action spaces. The environment's optional "alive", "completed"
+observation and action spaces, unless PAD_SPACES pads them to the largest.
+Action spaces must be all Discrete, or all Box, for which the policy is a
+Gaussian as in the reference. The environment's optional "alive", "completed"
 and "success" info entries must hold one value per agent.
 """
 
@@ -33,6 +35,7 @@ from flax.training.train_state import TrainState
 from omegaconf import OmegaConf
 
 import jaxmarl
+from jaxmarl.environments.spaces import Box, Discrete
 import wandb
 
 # BASELINE: (communicates, gates communication, default MEAN_RATIO)
@@ -54,6 +57,7 @@ class CommPolicy(nn.Module):
     gated: bool
     comm_passes: int
     lstm: bool = False  # without communication, an LSTM rather than a tanh RNN
+    continuous: bool = False  # a Gaussian policy rather than a categorical one
 
     @nn.compact
     def __call__(self, carry, obs, alive, talk):
@@ -95,16 +99,22 @@ class CommPolicy(nn.Module):
                 )(h)
             )
 
-        logits = nn.Dense(
+        # The action distribution's parameters: logits, or for continuous
+        # actions the mean and a learned, state-independent log standard
+        # deviation.
+        pi = nn.Dense(
             self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
         )(h)
+        if self.continuous:
+            log_std = self.param("log_std", constant(0.0), (self.action_dim,))
+            pi = (pi, jnp.broadcast_to(log_std, pi.shape))
         value = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(h)
         talk_logits = None
         if self.gated:
             talk_logits = nn.Dense(
                 2, kernel_init=orthogonal(0.01), bias_init=constant(0.0), name="talk"
             )(h)
-        return (h, c), logits, talk_logits, value.squeeze(-1)
+        return (h, c), pi, talk_logits, value.squeeze(-1)
 
 
 class Transition(NamedTuple):
@@ -162,6 +172,9 @@ class Learner(NamedTuple):
     info_keys: tuple
     gated: bool
     always_talk: bool
+    sample_action: Callable  # (policy output, rng) -> actions
+    log_prob_entropy: Callable  # (policy output, actions) -> (log prob, entropy)
+    env_actions: Callable  # actions -> the environment's action dict
 
 
 def make_learner(config):
@@ -176,11 +189,37 @@ def make_learner(config):
     agents = env.agents
     num_agents = env.num_agents
     num_envs, num_steps = config["NUM_ENVS"], config["NUM_STEPS"]
-    obs_dim = int(np.prod(env.observation_space(agents[0]).shape))
-    action_dim = env.action_space(agents[0]).n
-    for a in agents:
-        assert int(np.prod(env.observation_space(a).shape)) == obs_dim
-        assert env.action_space(a).n == action_dim
+
+    # All agents share one network. Without PAD_SPACES they need the same
+    # observation size and action space; with it, observations are zero-padded
+    # to the largest and followed by a one-hot agent id, and action spaces are
+    # padded to the largest, with each agent's extra actions or dimensions
+    # masked out.
+    pad = config.get("PAD_SPACES", False)
+    action_spaces = [env.action_space(a) for a in agents]
+    continuous = isinstance(action_spaces[0], Box)
+    if any(isinstance(s, Box) != continuous for s in action_spaces) or not all(
+        isinstance(s, (Box, Discrete)) for s in action_spaces
+    ):
+        raise ValueError(
+            "ic3net.py needs every agent's action space to be Discrete, or every "
+            f"agent's to be Box; got {[type(s).__name__ for s in action_spaces]}"
+        )
+    obs_sizes = [int(np.prod(env.observation_space(a).shape)) for a in agents]
+    action_sizes = [
+        int(np.prod(s.shape)) if continuous else int(s.n) for s in action_spaces
+    ]
+    if not pad and (len(set(obs_sizes)) > 1 or len(set(action_sizes)) > 1):
+        raise ValueError(
+            "ic3net.py shares one network between agents, so they need the same "
+            f"observation size (got {obs_sizes}) and number of "
+            f"{'action dimensions' if continuous else 'actions'} (got "
+            f"{action_sizes}); set PAD_SPACES=True to pad them"
+        )
+    obs_dim = max(obs_sizes) + (num_agents if pad else 0)
+    action_dim = max(action_sizes)
+    # (agents, action_dim): the actions, or action dimensions, each agent has.
+    action_mask = jnp.arange(action_dim) < jnp.array(action_sizes)[:, None]
     num_updates = int(config["TOTAL_TIMESTEPS"] // num_steps // num_envs)
     config["NUM_UPDATES"] = num_updates
 
@@ -191,7 +230,40 @@ def make_learner(config):
         gated=gated,
         comm_passes=config["COMM_PASSES"],
         lstm=config.get("LSTM", True),
+        continuous=continuous,
     )
+
+    def sample_action(pi, key):
+        if continuous:
+            mean, log_std = pi
+            return mean + jnp.exp(log_std) * jax.random.normal(key, mean.shape)
+        logits = jnp.where(action_mask, pi, -1e9)
+        return distrax.Categorical(logits=logits).sample(seed=key)
+
+    def action_log_prob_entropy(pi, action):
+        """Log probability and entropy of each agent's action, over the
+        actions or action dimensions it has."""
+        if continuous:
+            mean, log_std = pi
+            normal = distrax.Normal(mean, jnp.exp(log_std))
+            log_prob = (normal.log_prob(action) * action_mask).sum(-1)
+            return log_prob, (normal.entropy() * action_mask).sum(-1)
+        pi = distrax.Categorical(logits=jnp.where(action_mask, pi, -1e9))
+        return pi.log_prob(action), pi.entropy()
+
+    def env_actions(action):
+        """Each agent's action in the form its action space takes."""
+        if not continuous:
+            return {a: action[:, i] for i, a in enumerate(agents)}
+        # As in the reference's `translate_action`, a continuous action is
+        # scaled, clipped to [-1, 1] and mapped onto the space's bounds; the
+        # loss uses the unclipped sample.
+        out = {}
+        for i, (a, s) in enumerate(zip(agents, action_spaces)):
+            x = action[:, i, : action_sizes[i]].reshape(num_envs, *s.shape)
+            x = jnp.clip(x * config.get("ACTION_SCALE", 1.0), -1.0, 1.0)
+            out[a] = s.low + 0.5 * (x + 1.0) * (s.high - s.low)
+        return out
 
     def init_carry(batch_shape):
         shape = (*batch_shape, num_agents, config["HIDDEN_SIZE"])
@@ -207,7 +279,20 @@ def make_learner(config):
         )
 
     def batchify(x):
-        return jnp.stack([x[a].reshape(num_envs, -1) for a in agents], axis=1)
+        obs = [x[a].reshape(num_envs, -1) for a in agents]
+        if pad:
+            ids = jnp.eye(num_agents)
+            obs = [
+                jnp.concatenate(
+                    [
+                        jnp.pad(o, ((0, 0), (0, max(obs_sizes) - o.shape[-1]))),
+                        jnp.broadcast_to(ids[i], (num_envs, num_agents)),
+                    ],
+                    axis=-1,
+                )
+                for i, o in enumerate(obs)
+            ]
+        return jnp.stack(obs, axis=1)
 
     # Which per-agent statistics the environment reports in its info.
     def _info(key):
@@ -225,12 +310,12 @@ def make_learner(config):
         def _env_step(carry, _):
             hidden, env_state, obs, alive, talk, valid, rng = carry
             obs_batch = batchify(obs)
-            hidden, logits, talk_logits, _ = network.apply(
+            hidden, pi, talk_logits, _ = network.apply(
                 params, hidden, obs_batch, alive, talk
             )
             rng, key_act, key_talk, key_step = jax.random.split(rng, 4)
-            action = distrax.Categorical(logits=logits).sample(seed=key_act)
-            talk_action = jnp.zeros_like(action)
+            action = sample_action(pi, key_act)
+            talk_action = jnp.zeros((num_envs, num_agents), dtype=jnp.int32)
             if gated:
                 talk_action = distrax.Categorical(logits=talk_logits).sample(
                     seed=key_talk
@@ -238,7 +323,7 @@ def make_learner(config):
             obs, env_state, reward, done, info = jax.vmap(env.step)(
                 jax.random.split(key_step, num_envs),
                 env_state,
-                {a: action[:, i] for i, a in enumerate(agents)},
+                env_actions(action),
             )
             ones = jnp.ones((num_envs, num_agents))
             none = jnp.zeros((num_envs, num_agents), dtype=bool)
@@ -284,7 +369,7 @@ def make_learner(config):
     def loss(params, traj, returns):
         def _step(hidden, xs):
             t, obs, alive, talk = xs
-            hidden, logits, talk_logits, value = network.apply(
+            hidden, pi, talk_logits, value = network.apply(
                 params, hidden, obs, alive, talk
             )
             # Truncated backpropagation through time, as the reference.
@@ -292,16 +377,14 @@ def make_learner(config):
             hidden = jax.tree.map(
                 lambda x: jnp.where(cut, jax.lax.stop_gradient(x), x), hidden
             )
-            return hidden, (logits, talk_logits, value)
+            return hidden, (pi, talk_logits, value)
 
-        _, (logits, talk_logits, value) = jax.lax.scan(
+        _, (pi, talk_logits, value) = jax.lax.scan(
             _step,
             init_carry((num_envs,)),
             (jnp.arange(num_steps), traj.obs, traj.alive, traj.talk),
         )
-        pi = distrax.Categorical(logits=logits)
-        log_prob = pi.log_prob(traj.action)
-        entropy = pi.entropy()
+        log_prob, entropy = action_log_prob_entropy(pi, traj.action)
         if gated:
             talk_pi = distrax.Categorical(logits=talk_logits)
             log_prob = log_prob + talk_pi.log_prob(traj.talk_action)
@@ -331,6 +414,9 @@ def make_learner(config):
         info_keys=info_keys,
         gated=gated,
         always_talk=always_talk,
+        sample_action=sample_action,
+        log_prob_entropy=action_log_prob_entropy,
+        env_actions=env_actions,
     )
 
 
