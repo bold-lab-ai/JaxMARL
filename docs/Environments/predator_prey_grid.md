@@ -85,9 +85,9 @@ IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on
 | IPPO | -0.79 ± 0.03 | 0.92 ± 0.03 | 26.2 ± 0.8 | 21 min |
 | MAPPO | -0.80 ± 0.03 | 0.80 ± 0.04 | 26.1 ± 1.4 | 93 min |
 
-The IC3Net paper reports the number of steps to reach the prey: 28.0 for independent agents without communication (IC) and 13.1 for CommNet. IPPO's episode length levels off early at about the IC level, though its success rate is still rising slowly; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds at once ran out of memory on an L40S's 48 GB, so they were run as four sequential batches of 5, with the seeds of `NUM_SEEDS=20`; its wall time is the sum. The tables were produced by a script that calls the same `make_train`, runs the seeds in batches and saves each seed's test metrics. The training scripts themselves can't split seeds into batches; with JAX 0.5 or later, whose default random-key splitting makes the first keys of a split independent of their number, `NUM_SEEDS=5` runs the first five of those seeds.
+The IC3Net paper reports 28.0 steps to reach the prey for independent agents without communication (IC) and 13.1 for CommNet. IPPO's episode length levels off early at about the IC level; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds don't fit in an L40S's 48 GB at once, so they were run as four batches of five, and its wall time is the sum; with JAX 0.5 or later, `NUM_SEEDS=5` runs the first of these batches.
 
-The scripts report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them, and `WANDB_LOG_ALL_SEEDS` to log each seed under its own keys rather than all of them under the same ones:
+The tables come from a script that calls the same `make_train` and saves each seed's test metrics. To log the scripts' metrics to Weights & Biases, which these configs disable, set `WANDB_MODE`, and `WANDB_LOG_ALL_SEEDS` to log each seed separately:
 
 ```bash
 python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True

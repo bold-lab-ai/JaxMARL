@@ -87,7 +87,7 @@ IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on
 
 Both raise the return, but neither avoids collisions. In the IC3Net paper, agents without communication (IRIC) also reach 3.4% success on the medium version, against 89.3% for IC3Net, with the curriculum and 2,000 epochs of training.
 
-The tables were produced by a script that calls the same `make_train` and saves each seed's test metrics. The scripts themselves report their metrics to Weights & Biases, which these configs disable; set `WANDB_MODE` to log them, and `WANDB_LOG_ALL_SEEDS` to log each seed under its own keys rather than all of them under the same ones:
+The tables come from a script that calls the same `make_train` and saves each seed's test metrics. To log the scripts' metrics to Weights & Biases, which these configs disable, set `WANDB_MODE`, and `WANDB_LOG_ALL_SEEDS` to log each seed separately:
 
 ```bash
 python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
