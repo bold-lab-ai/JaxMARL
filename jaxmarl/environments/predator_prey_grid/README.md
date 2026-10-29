@@ -4,6 +4,12 @@ A JAX implementation of the grid Predator-Prey task from [Learning when to Commu
 
 `num_agents` predators search a `dim` x `dim` grid for a single fixed prey. Each predator sees only a small square window around itself, so finding the prey quickly rewards sharing what each predator has seen.
 
+<p align="center">
+  <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="Predator-Prey" width="300">
+</p>
+
+CommNet agents trained with the [learned-communication baselines](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) on the medium setting, catching the prey (yellow).
+
 This is a different task from `JaxRobotarium_predator_prey`, which is continuous-space.
 
 ## Observation, action space and reward

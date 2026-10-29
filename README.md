@@ -33,6 +33,10 @@
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/jaxnav-ma.gif?raw=true" alt="jaxnav" width="20%">
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/smax.gif?raw=true" alt="SMAX" width="20%">
         </div>
+        <div class="row" align="centre">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="traffic_junction" width="20%">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="predator_prey" width="20%">
+        </div>
     </div>
 </div>
 

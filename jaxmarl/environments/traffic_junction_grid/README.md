@@ -4,6 +4,12 @@ A JAX implementation of the Traffic Junction task from [Learning Multiagent Comm
 
 Cars enter at the ends of the roads, follow a fixed route through one or more junctions, and leave at its end. Each car sees little or nothing beyond its own cell, so avoiding collisions at the junctions rewards coordination.
 
+<p align="center">
+  <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="Traffic Junction" width="300">
+</p>
+
+IC3Net agents trained with the [learned-communication baselines](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) on the medium version.
+
 ## Observation, action space and reward
 
 Each car observes a flat vector:
