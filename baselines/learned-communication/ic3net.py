@@ -429,18 +429,24 @@ def main(config):
     ]
     outs = jax.tree.map(lambda *x: jnp.concatenate(x), *chunks)
 
-    # Mean over the last 2% of updates, then mean and std over seeds, as the
+    # Mean over the last 2% of updates, then the mean, sample standard deviation
+    # and bootstrap 95% confidence interval of the mean over seeds, as the
     # README's results report.
     tail = max(1, config["NUM_UPDATES"] // 50)
-    final = jax.tree.map(lambda x: x[:, -tail:].mean(1), outs["metrics"])
+    final = jax.tree.map(lambda x: np.asarray(x[:, -tail:].mean(1)), outs["metrics"])
     for k in [
         "returned_episode_returns",
         "returned_episode_lengths",
         "success",
         "comm_rate",
     ]:
-        if k in final:
-            print(f"{k}: {final[k].mean():.3f} +- {final[k].std():.3f}")
+        if k in final and len(final[k]) > 1:
+            v = final[k]
+            boot = np.random.default_rng(0).choice(v, (10000, len(v))).mean(1)
+            lo, hi = np.percentile(boot, [2.5, 97.5])
+            print(f"{k}: {v.mean():.3f} +- {v.std(ddof=1):.3f} (95% CI {lo:.3f} to {hi:.3f})")
+        elif k in final:
+            print(f"{k}: {final[k].mean():.3f}")
 
     if config.get("SAVE_PATH") is not None:
         from jaxmarl.wrappers.baselines import save_params
