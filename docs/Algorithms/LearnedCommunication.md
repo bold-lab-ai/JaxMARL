@@ -1,24 +1,53 @@
-# Learned-Communication Baselines
+# Learned Communication
 
-Pure JAX implementations of methods whose agents learn to communicate through a differentiable channel in their architecture, as opposed to environments with message actions:
+Pure JAX implementations of:
 
-* CommNet ([Sukhbaatar et al., 2016](https://arxiv.org/abs/1605.07736)): before each LSTM step, every agent adds the mean of the other agents' hidden states to its input.
-* IC3Net ([Singh et al., 2019](https://arxiv.org/abs/1812.09755)): CommNet where each agent also chooses, at every step, whether to communicate at the next one.
-* IC and IRIC: the no-communication controls from the IC3Net paper, independent recurrent agents trained on the team's mean return (IC) or on their own (IRIC).
+* CommNet ([Sukhbaatar et al., 2016](https://arxiv.org/abs/1605.07736))
+* IC3Net ([Singh et al., 2019](https://arxiv.org/abs/1812.09755))
+* IC and IRIC, the no-communication controls from the IC3Net paper
 
-`ic3net.py` ports the IC3Net [reference implementation](https://github.com/IC3Net/IC3Net), which trains all four with REINFORCE and a learned value baseline.
+The agents learn to communicate through a differentiable channel in their network, rather than through message actions in the environment. `ic3net.py` follows the IC3Net [reference implementation](https://github.com/IC3Net/IC3Net), which trains all four with REINFORCE and a learned value baseline.
+
+Supported environments:
+
+- Traffic Junction (`traffic_junction_grid`): the paper's easy, medium and hard versions
+- Predator-Prey (`predator_prey_grid`): the paper's easy, medium and hard settings
+- MPE Simple Reference
+
+All agents share parameters, so other environments need homogeneous agents and discrete actions, and their optional `alive`, `completed` and `success` info entries must hold one value per agent.
+
+## ⚙️ Implementation Details
+
+- CommNet: before each LSTM step, every agent adds the mean of the other agents' hidden states to its input. CommNet agents always communicate.
+- IC3Net: CommNet where each agent also chooses, at every step, whether to communicate at the next one, so no IC3Net agent communicates at the first step. Agents that are silent or dead (`info["alive"]`, when the environment reports it) neither send nor receive messages.
+- IC and IRIC: independent recurrent agents, trained on the team's mean return (IC) or on their own (IRIC).
+- Each update trains on whole episodes, with Monte Carlo returns and RMSprop (`alpha=0.97`, `eps=1e-6`) without gradient clipping, as in the reference. Losses are summed over agents and averaged over environment steps, and each step's loss is masked with the agents alive after it.
+- With `MEAN_RATIO` below 1, an agent's own return ends when its episode does: a car that leaves Traffic Junction does not inherit the rewards of the next car in its slot.
+- Reported statistics come from the training episodes.
+
+`tests/baselines/test_ic3net.py` checks the returns, one step of the policies, and the loss and its gradients over a trajectory against transliterations of the reference's loops, as well as the rollout's timing of the alive and talk inputs, and the optimizer.
+
+Differences from the reference:
+
+- Layers use the orthogonal initialisation of the other JaxMARL baselines, and the LSTM flax's defaults, rather than PyTorch's defaults. Computation is in float32; the reference uses float64.
+- Every update runs `NUM_ENVS` episodes of `NUM_STEPS` steps, 8,000 steps in the configurations (7,980 on hard Traffic Junction). The reference instead collects at least 500 steps of whole episodes in each of 16 processes: 8,000 to 8,960 steps per update when episodes last until the time limit, as in Traffic Junction. Predator-Prey episodes end once every predator reaches the prey, so as the agents improve, the reference's batch stays near 8,000 steps while the configurations' shrinks.
+- The entropy term is masked like the rest of the loss; the reference sums it over all agents. It is unused with the default `ENT_COEF` of 0.
+- There is no curriculum (see [Configurations](#configurations)).
 
 ## 🚀 Usage
 
-`BASELINE` selects the method and `+alg` the environment configuration:
+If you have cloned JaxMARL and are in the repository root, you can run the script with `BASELINE` selecting the method and `+alg` the environment configuration:
 
 ```bash
+# IC3Net on medium Traffic Junction
 python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_medium BASELINE=ic3net
+# CommNet on medium Predator-Prey, 20 vmapped seeds
 python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_medium BASELINE=commnet NUM_SEEDS=20
+# IRIC on easy Predator-Prey with another learning rate
 python baselines/learned-communication/ic3net.py +alg=ic3net_predator_prey_easy BASELINE=iric alg.LR=0.002
 ```
 
-The configurations are the IC3Net paper's easy, medium and hard settings of `traffic_junction_grid` and `predator_prey_grid`, with the paper's training settings but without its curriculum (see [Settings](#settings)), and `ic3net_mpe_simple_reference` trains on MPE's Simple Reference. All agents share parameters, so other environments need homogeneous agents and discrete actions, and their optional `alive`, `completed` and `success` info entries must hold one value per agent; the script has only been trained on these three.
+Take a look at [`config.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication/config/config.yaml) for the default configuration, including the `wandb` details (`wandb` is disabled by default), and at [`config/alg`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication/config/alg) for the environment configurations. The main keys:
 
 | Key | Meaning |
 | --- | --- |
@@ -31,41 +60,24 @@ The configurations are the IC3Net paper's easy, medium and hard settings of `tra
 | `SEED_CHUNK` | Trains the `NUM_SEEDS` seeds this many at a time, to fit in memory, with the same seeds as all at once |
 | `LSTM` | By default, IC and IRIC use an LSTM, as in the paper; `False` gives the tanh RNN of the reference's commands. CommNet and IC3Net always use an LSTM |
 
-## ⚙️ Implementation details
+### Configurations
 
-The tests in `tests/baselines/test_ic3net.py` check the returns, one step of the policies, and the loss and its gradients over a trajectory against transliterations of the reference's loops. They also check the rollout's timing of the alive and talk inputs, and the optimizer. As in the reference:
-
-- Each update trains on whole episodes, with Monte Carlo returns and RMSprop (`alpha=0.97`, `eps=1e-6`) without gradient clipping. Losses are summed over agents and averaged over environment steps.
-- With `MEAN_RATIO` below 1, an agent's own return ends when its episode does: a car that leaves Traffic Junction does not inherit the rewards of the next car in its slot.
-- Agents that are dead (`info["alive"]`, when the environment reports it) or silent neither send nor receive messages. An IC3Net agent's choice to communicate takes effect at the next step, so no IC3Net agent communicates at the first; CommNet agents always communicate.
-- Each step's loss is masked with the agents alive after it. A car's final step on the road is therefore not trained, and a car that enters during a step is trained on that step, though it acted on an empty observation.
-- Reported statistics come from the training episodes.
-
-Differences from the reference:
-
-- Layers use the orthogonal initialisation of the other JaxMARL baselines, and the LSTM flax's defaults, rather than PyTorch's defaults. Computation is in float32; the reference uses float64.
-- Every update runs a fixed number of episodes; the reference runs 16 processes that each collect at least 500 steps of whole episodes, which is 8,000 steps per update on easy, 8,320 on medium and 8,960 on hard (8,640 on hard Traffic Junction, with 60 steps) when episodes last until the time limit. The configurations run 8,000 (7,980 on hard Traffic Junction). Traffic Junction episodes always last until the time limit, but Predator-Prey episodes end once every predator reaches the prey, so as the agents improve, the batch shrinks well below the reference's.
-- The entropy term is masked like the rest of the loss; the reference sums it over all agents. It is unused with the default `ENT_COEF` of 0.
-- There is no curriculum (see [Settings](#settings)).
-
-### Settings
-
-The configurations follow the paper's training settings, and the reference's commands where the paper doesn't give one, except for the curriculum:
+The Traffic Junction and Predator-Prey configurations follow the IC3Net paper's training settings, and the reference's commands where the paper doesn't give one, except for the curriculum:
 
 | Setting | Paper | Reference's commands | Configurations |
 | --- | --- | --- | --- |
 | Traffic Junction learning rate | 0.003 | 0.001 | 0.003 |
 | Predator-Prey learning rate | Tuned, not given | 0.001 | 0.001 |
 | Predator-Prey training | 1,000 epochs | 2,000 epochs | 1,000 epochs |
-| IC and IRIC network | LSTM | tanh RNN | LSTM; tanh RNN with `LSTM=False` |
+| IC and IRIC network | LSTM | tanh RNN | LSTM |
 | Hard Traffic Junction `max_steps` | 60 | 80 | 60 |
 | Traffic Junction `add_rate` | Raised from 0.1, 0.05 and 0.02 to 0.3, 0.2 and 0.05 | The same, but medium's curriculum is disabled | Fixed at 0.3, 0.2 and 0.05 |
 
-No other JaxMARL baseline trains with a curriculum, so Traffic Junction trains at the environment's fixed `add_rate`, as IPPO and MAPPO do. Its results are therefore not the paper's experiment; [Traffic Junction with the curriculum](#traffic-junction-with-the-curriculum) shows the curriculum doesn't explain the gaps. The paper and the configurations both train Traffic Junction for 2,000 epochs of 10 updates. The environments' READMEs list the other places where the paper's settings disagree with each other or with the reference.
+No other JaxMARL baseline trains with a curriculum, so Traffic Junction trains at the environment's fixed `add_rate`, as IPPO and MAPPO do; [with the curriculum](#with-the-curriculum), the gaps to the paper remain. The environments' READMEs list the other places where the paper's settings disagree with each other or with the reference.
 
 ## 📈 Results
 
-All four methods with the configurations above: 20 seeds each, trained for 20,000 updates of 8,000 simulated steps on Traffic Junction (the paper's 2,000 epochs) and 10,000 on Predator-Prey (its 1,000). Values are the mean ± sample standard deviation over seeds of the training episodes in the last 2% of updates, followed by the bootstrap 95% confidence interval of the mean. The paper's values are over 5 runs; it doesn't say what its ± is.
+All four methods with the configurations above, 20 seeds each, trained for 20,000 updates of 8,000 simulated steps on Traffic Junction (the paper's 2,000 epochs) and 10,000 on Predator-Prey (its 1,000). Values are the mean ± sample standard deviation over seeds of the training episodes in the last 2% of updates, followed by the bootstrap 95% confidence interval of the mean. The paper's values are over 5 runs; it doesn't say what its ± is.
 
 Traffic Junction success (%):
 
@@ -85,17 +97,16 @@ Predator-Prey steps to reach the prey:
 | CommNet | 9.4 ± 0.1 [9.3, 9.4] | 9.1 ± 0.1 | 14.4 ± 1.5 [13.9, 15.2] | 13.1 ± 0.01 | 76.5 ± 1.9 [75.7, 77.3] | 76.5 ± 1.3 |
 | IC3Net | 10.2 ± 2.2 [9.3, 11.2] | 8.9 ± 0.02 | 16.7 ± 2.1 [15.9, 17.7] | 13.0 ± 0.02 | 64.3 ± 7.4 [61.1, 67.4] | 52.4 ± 3.4 |
 
-- On the easy versions, communication raises Traffic Junction success from 28% to 87–89% and nearly halves the steps to the prey, as in the paper. Without communication, IC and IRIC come within 2 points of success and 0.1 steps of the paper. CommNet and IC3Net fall 4–6 points short of the paper on Traffic Junction. 18 CommNet seeds reach 89–99% success, one 72%, and one stays at 28%, the level without communication. On Predator-Prey, 17 IC3Net seeds take 9.2–9.6 steps and three take 12.7–16.2.
-- IC and IRIC end with the same easy Traffic Junction success: both converge to near-deterministic policies, and runs with the same seed get the same car arrivals.
-- On medium Traffic Junction, without the curriculum, IC3Net exceeds the paper: all 20 seeds end at 79–98% success. Its mean success stays at 3.4% for the first tenth of training, reaches 88% half way, and 93% at the end. 19 CommNet seeds stay at 2.4–4.0%, the level without communication, and one reaches 62%. IC and IRIC match the paper.
-- On medium Predator-Prey, IC and IRIC match the paper. 16 CommNet seeds take 13.5–14.4 steps, against the paper's 13.1, and four take 15.2–20.2. IC3Net doesn't overtake CommNet; its agents communicate at 72% of steps. Three times as many episodes per update help CommNet: in a run with `alg.NUM_ENVS=600` (batches near the reference's size once episodes are short) and twice as many updates, 4 seeds of CommNet take 13.2 ± 0.1 [13.2, 13.3] steps after the first 10,000. 4 seeds of IC3Net take 15.8 ± 0.6 [15.4, 16.4], within the spread of its 20 seeds, so that run doesn't settle whether batch size explains IC3Net's gap.
-- On hard Traffic Junction, all four methods fall well short of the paper. IC3Net still leads, but five of its seeds end at 13–17% success, the level without communication, and twelve reach 57–78%; its mean success stopped rising after three quarters of training. CommNet ends below IC and IRIC.
-- On hard Predator-Prey, IC, IRIC and CommNet match the paper, taking 75–77 of the 80 allowed steps. IC3Net is the only method that improves much, as in the paper, but takes 64 steps against the paper's 52; its agents communicate at 71% of steps.
-- For comparison, IPPO and MAPPO on the same medium environments (see the environments' READMEs) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey. They train for 2e7 steps and report greedy test episodes.
+- On the easy versions, communication raises Traffic Junction success from 28% to 87–89% and nearly halves the steps to the prey, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper, and CommNet and IC3Net fall 4–6 points short on Traffic Junction; one CommNet seed stays at 28%. IC and IRIC end with the same easy Traffic Junction success because both converge to near-deterministic policies, and runs with the same seed get the same car arrivals.
+- On medium Traffic Junction, IC3Net exceeds the paper, with all 20 seeds at 79–98% success, while 19 CommNet seeds stay at 2.4–4.0%, the level without communication.
+- On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper. With three times as many episodes per update (`alg.NUM_ENVS=600`) and twice as many updates, 4 seeds of CommNet take 13.2 ± 0.1 [13.2, 13.3] steps after the first 10,000 updates, near the paper's 13.1, but 4 seeds of IC3Net take 15.8 ± 0.6 [15.4, 16.4].
+- On hard Traffic Junction, all four methods fall well short of the paper. IC3Net still leads, but five of its seeds end at 13–17% success, the level without communication.
+- On hard Predator-Prey, IC, IRIC and CommNet match the paper, taking 75–77 of the 80 allowed steps. IC3Net is the only method that improves much, as in the paper, but takes 64 steps against the paper's 52.
+- For comparison, IPPO and MAPPO on the same medium environments (see the environments' READMEs) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey, after 2e7 steps.
 
-### Traffic Junction with the curriculum
+### With the curriculum
 
-To check whether the missing curriculum explains the gaps to the paper, the same 20 seeds of each method were trained on Traffic Junction with the configurations above and the paper's curriculum restored, using `ic3net.py` as of commit e5e916e, the last with the curriculum. Every run had reached the fixed `add_rate` by the end, so the success below is on the same task as the table above:
+The same 20 seeds of each method trained on Traffic Junction with the paper's curriculum restored, using `ic3net.py` as of commit ad60bb9. Every run had reached the fixed `add_rate` by the end, so the success (%) below is on the same task as above:
 
 | Method | Easy | Medium | Hard |
 | --- | --- | --- | --- |
@@ -104,13 +115,11 @@ To check whether the missing curriculum explains the gaps to the paper, the same
 | CommNet | 89.5 ± 8.4 [85.9, 93.0] | 21.7 ± 27.4 [10.9, 34.1] | 12.0 ± 4.7 [9.9, 13.9] |
 | IC3Net | 89.7 ± 6.6 [86.7, 92.4] | 79.8 ± 16.1 [72.4, 86.1] | 35.5 ± 21.5 [26.6, 44.7] |
 
-- The curriculum doesn't close the gaps to the paper. On hard, IC and IRIC end where they do without it, CommNet gains 3 points, and IC3Net loses 14: seven of its seeds end at 2–17% success and five reach 55–76%.
-- On medium, the curriculum helps CommNet, whose five best seeds reach 56–74%, but its mean stays below the paper's 54.3. It lowers IC3Net from 92.8 to 79.8, with five seeds at 39–62%. Ten IC seeds reach 14–30%, above the paper's 3.4.
-- On easy, it changes little.
+The curriculum doesn't close the gaps to the paper. It helps CommNet on medium, though its mean stays below the paper's 54.3, and lowers IC3Net on medium and hard.
 
 ### MPE Simple Reference
 
-`ic3net_mpe_simple_reference` trains on `MPE_simple_reference_v3`, one of JaxMARL's existing environments, which the paper doesn't use. Each of the two agents sees the landmark the other must reach, and is rewarded for getting it there. The configuration runs the same batch size and number of updates as Predator-Prey. Episode return, as above (higher is better):
+`ic3net_mpe_simple_reference` trains on `MPE_simple_reference_v3`, which the paper doesn't use, with the same batch size and number of updates as Predator-Prey. Each of the two agents sees the landmark the other must reach. Episode return (higher is better):
 
 | Method | Return |
 | --- | --- |
@@ -119,17 +128,18 @@ To check whether the missing curriculum explains the gaps to the paper, the same
 | CommNet | -19.3 ± 3.5 [-20.8, -17.9] |
 | IC3Net | -17.6 ± 5.7 [-20.0, -15.2] |
 
-- Learned communication doesn't help here: IC and IRIC do at least as well as CommNet and IC3Net. Their agents can already communicate through the environment's message actions, which the other agent observes.
-- 3 CommNet seeds, 5 IC3Net seeds and 1 IRIC seed end near -26, where training starts. All four methods were still improving at the end of training, which takes 5–6 minutes for 20 seeds.
+Learned communication doesn't help here: IC and IRIC can already communicate through the environment's message actions. A few seeds of IRIC, CommNet and IC3Net end near -26, where training starts, and all four methods were still improving at the end.
+
+### Reproducing the results
 
 Wall time for 20 seeds on one L40S, including compilation, with `SEED_CHUNK=10` (5 on hard):
 
-| Method | Traffic Junction easy | medium | hard | Predator-Prey easy | medium | hard |
-| --- | --- | --- | --- | --- | --- | --- |
-| IC, IRIC | 26 min | 56 min | 132 min | 8 min | 28 min | 203 min |
-| CommNet, IC3Net | 28–30 min | 61–64 min | 143–148 min | 8–9 min | 31 min | 206–207 min |
+| Method | Traffic Junction easy | medium | hard | Predator-Prey easy | medium | hard | MPE Simple Reference |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| IC, IRIC | 26 min | 56 min | 132 min | 8 min | 28 min | 203 min | 5–6 min |
+| CommNet, IC3Net | 28–30 min | 61–64 min | 143–148 min | 8–9 min | 31 min | 206–207 min | 5–6 min |
 
-These commands train the same seeds, for each `BASELINE`, and print the statistics of the tables; the results were produced by a script that calls the same `make_train` and also saved the per-update metrics. On a GPU, XLA's default kernels aren't deterministic, so two runs with the same seed drift apart within the first updates and end with different results; `XLA_FLAGS=--xla_gpu_deterministic_ops=true` makes them identical.
+These commands train the same seeds, for each `BASELINE`, and print the statistics of the tables. On a GPU, XLA's default kernels aren't deterministic, so two runs with the same seed drift apart; `XLA_FLAGS=--xla_gpu_deterministic_ops=true` makes them identical.
 
 ```bash
 python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_medium BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
