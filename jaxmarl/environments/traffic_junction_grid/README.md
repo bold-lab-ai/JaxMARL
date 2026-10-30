@@ -8,7 +8,7 @@ Cars enter at the ends of the roads, follow a fixed route through one or more ju
   <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="Traffic Junction" width="300">
 </p>
 
-IC3Net agents trained with the [learned-communication baselines](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) on the medium version.
+A successful episode of IC3Net agents trained on the medium version.
 
 ## Observation, action space and reward
 
@@ -33,7 +33,7 @@ At each step, a car enters at each arrival point with probability `add_rate`, wh
 
 ## Configurations
 
-`difficulty` selects the paper's layout and defaults for the other arguments, from Table 4 of the IC3Net paper and, for `max_steps`, its text; any of them can be overridden.
+`difficulty` selects the paper's layout and defaults for the other arguments, from Table 4 of the IC3Net paper and, for `max_steps`, its text for `easy` and `medium` and the reference's command for `hard`; any of them can be overridden.
 
 | `difficulty` | Layout | Grid | Routes | `num_agents` | `max_steps` | `add_rate` |
 | --- | --- | --- | --- | --- | --- | --- |
