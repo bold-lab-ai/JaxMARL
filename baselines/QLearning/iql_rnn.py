@@ -387,7 +387,7 @@ def make_train(config, env):
 
                     target = (
                         _rewards[:, :-1]
-                        + (1 - _dones[:, :-1]) * config["GAMMA"] * q_next[:, 1:]
+                        + (1 - _dones[:, 1:]) * config["GAMMA"] * q_next[:, 1:]
                     )
 
                     chosen_action_q_vals = chosen_action_q_vals[:, :-1]
