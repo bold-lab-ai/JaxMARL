@@ -8,7 +8,7 @@ Cars enter at the ends of the roads, follow a fixed route through one or more ju
   <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="Traffic Junction" width="300">
 </p>
 
-A successful episode of IC3Net agents trained on the medium version.
+A successful episode of trained agents on the medium version.
 
 ## Observation, action space and reward
 
@@ -27,7 +27,7 @@ Cars that are off the road observe zeros.
 | 0 | GAS: advance one cell along the route |
 | 1 | BRAKE: stay |
 
-A car on the road receives `-0.01 * wait` per step, where `wait` is the number of steps it has spent on the road, and `-10` for each step in which it shares a cell with another car. Cars off the road receive 0. Episodes end after `max_steps`. `info["success"]` is true when no collision has happened in the episode. As in the reference, `info["alive"]` marks the cars on the road after the step, including cars that entered during it, and `info["completed"]` the cars that left at the end of their route during it. The IC3Net baselines use them to mask cars off the road, as the reference's trainer does.
+A car on the road receives `-0.01 * wait` per step, where `wait` is the number of steps it has spent on the road, and `-10` for each step in which it shares a cell with another car. Cars off the road receive 0. Episodes end after `max_steps`. `info["success"]` is true when no collision has happened in the episode. As in the reference, `info["alive"]` marks the cars on the road after the step, including cars that entered during it, and `info["completed"]` the cars that left at the end of their route during it. A trainer can use them to mask cars off the road, as the reference's trainer does.
 
 At each step, a car enters at each arrival point with probability `add_rate`, while fewer than `num_agents` cars are on the road; entering cars take a random route from that arrival point. The agents are a fixed pool of `num_agents` car slots, which are reused as cars leave and enter.
 
@@ -41,12 +41,7 @@ At each step, a car enters at each arrival point with probability `add_rate`, wh
 | `medium` | 1 junction, two-way roads | 14x14 | 12 | 10 | 40 | 0.2 |
 | `hard` | 4 junctions, two-way roads | 18x18 | 56 | 20 | 80 | 0.05 |
 
-`vision` defaults to 0, as in the paper. The paper trains with a curriculum that raises `add_rate` from 0.1, 0.05 and 0.02 respectively to the values above; the defaults are the final values. Where the paper and the reference's training instructions disagree:
-
-- `max_steps` for `hard`: the paper's text gives 60 and the reference's command 80. This follows the command.
-- `add_rate` for `medium`: the reference's instructions give a maximum of 0.02, below the minimum of 0.05, which disables its curriculum. This follows Table 4.
-- `num_agents` for `medium`: the paper's text gives 20 and Table 4 gives 10. This follows Table 4 and the reference's instructions.
-- The layouts: the paper's text gives `easy` two routes per arrival point and `medium` two junctions, and Table 4 gives one of each. This follows Table 4 and the reference.
+`vision` defaults to 0, as in the paper. The paper trains with a curriculum that raises `add_rate` from 0.1, 0.05 and 0.02 respectively to the values above; the defaults are the final values. For `hard`, the paper's text gives a `max_steps` of 60 and the reference's command 80; the default follows the command.
 
 ## Usage
 
@@ -70,7 +65,34 @@ for _ in range(10):
     obs, state, reward, done, info = env.step(key_step, state, actions)
 ```
 
-`init_render` and `update_render` draw the roads and cars with matplotlib, for use with `jaxmarl.viz.visualizer.Visualizer`.
+## Visualisation
+
+`init_render` and `update_render` draw the environment with matplotlib, for use with `Visualizer`:
+
+```python
+import jax
+from jaxmarl import make
+from jaxmarl.viz.visualizer import Visualizer
+
+key = jax.random.PRNGKey(0)
+env = make("traffic_junction_grid", difficulty="medium")
+
+key, key_reset = jax.random.split(key)
+obs, state = env.reset(key_reset)
+state_seq = [state]
+for _ in range(40):
+    key, key_act, key_step = jax.random.split(key, 3)
+    key_act = jax.random.split(key_act, env.num_agents)
+    actions = {
+        agent: env.action_space(agent).sample(key_act[i])
+        for i, agent in enumerate(env.agents)
+    }
+    obs, state, reward, done, info = env.step(key_step, state, actions)
+    state_seq.append(state)
+
+viz = Visualizer(env, state_seq)
+viz.animate(save_fname="traffic_junction.gif", view=False)
+```
 
 ## Performance
 
@@ -82,30 +104,23 @@ Environment steps per second (one step of all cars, including every car's observ
 | `medium` | 6,500 | 14,100 | 1.3M | 7.8M | 11M |
 | `hard` | 3,300 | 8,500 | 0.63M | 2.1M | 3.1M |
 
-## Baseline results
+## Baselines
 
-IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on `difficulty="medium"`, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_traffic_junction_grid.yaml` and `mappo_homogenous_rnn_traffic_junction_grid.yaml`. They train at the fixed default `add_rate`, without the paper's curriculum. Values are the mean ± standard deviation over seeds of the final greedy test episodes; wall times include compilation. The return is each car slot's total reward over the episode, averaged over the slots. Unlike the reference's trainer, IPPO and MAPPO don't mask the steps a slot spends off the road, where its observation and reward are zero.
-
-| Algorithm | Return | Success rate | Wall time (L40S, 20 seeds) |
-| --- | --- | --- | --- |
-| IPPO | -21.2 ± 1.1 | 0.03 ± 0.01 | 24 min |
-| MAPPO | -10.2 ± 0.5 | 0.05 ± 0.01 | 51 min |
-
-Both raise the return, but neither avoids collisions. In the IC3Net paper, agents without communication (IRIC) also reach 3.4% success on the medium version, against 89.3% for IC3Net, with the curriculum and 2,000 epochs of training.
-
-The tables come from a script that calls the same `make_train` and saves each seed's test metrics. To log the scripts' metrics to Weights & Biases, which these configs disable, set `WANDB_MODE`, and `WANDB_LOG_ALL_SEEDS` to log each seed separately:
+IPPO and MAPPO configurations for the medium version are in [`ippo_rnn_traffic_junction_grid.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/IPPO/config/ippo_rnn_traffic_junction_grid.yaml) and [`mappo_homogenous_rnn_traffic_junction_grid.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/MAPPO/config/mappo_homogenous_rnn_traffic_junction_grid.yaml):
 
 ```bash
-python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
-python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_traffic_junction_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_traffic_junction_grid
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_traffic_junction_grid
 ```
+
+They train at the fixed default `add_rate`, without the paper's curriculum, and unlike the reference's trainer don't mask the steps a car slot spends off the road.
 
 ## Correspondence with the reference implementation
 
 `tests/traffic_junction_grid/test_traffic_junction_grid.py` checks that the routes of all three versions are identical to the reference's. Car arrivals are random, so the test replays each step of this environment through the reference, with the same state, actions and arriving cars, and checks that car positions, waiting times, rewards, collisions and observations agree. Differences from the reference:
 
-- The reference sizes the easy version's road ids from `dim` rather than the enlarged `dim + 1` grid, so one road cell, two below the junction, has the *outside* id. Here every road cell has its own id. The test applies the same change to the reference.
-- Cars that are off the road are not counted in observations. The reference counts them at cell `(0, 0)`, which is never road and only falls inside a window for larger `vision` (from 6 on `medium` and 4 on `hard`).
+- Every road cell has its own id; in the reference's easy version, one road cell has the *outside* id.
+- Cars that are off the road are not counted in observations.
 - The paper's reward scales the collision penalty with the number of collisions; the reference code, followed here, gives `-10` once per step however many cars share the cell.
 - `add_rate` is fixed for an environment; the reference's curriculum is left to the training loop.
 - The time limit is part of the environment; the reference never ends an episode and leaves the limit to the training loop.

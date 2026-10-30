@@ -1,6 +1,13 @@
 """
 Tests for the grid Predator-Prey environment, including step-by-step
 correspondence with the IC3Net reference implementation (ic3net_predator_prey.py).
+
+Details of the reference that the README leaves out:
+
+- The reference declares its observation space as (vocab, 2v+1, 2v+1) with
+  high=1, but returns (2v+1, 2v+1, vocab) arrays with counts up to num_agents.
+- With vision at least dim, the reference refuses moves right and down, because
+  it checks them against its padded grid; here predators move normally.
 """
 
 from types import SimpleNamespace

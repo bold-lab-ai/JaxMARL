@@ -5,6 +5,19 @@ IC3Net reference implementation (ic3net_traffic_junction.py).
 Car arrivals are random, so the transition test replays each JAX step through the
 reference: same pre-step state and actions, same arriving cars, then compares the
 cars, rewards, collisions and observations.
+
+Details of the reference and the paper that the README leaves out:
+
+- The reference sizes the easy version's road ids from `dim` rather than the
+  enlarged `dim + 1` grid, so one road cell, two below the junction, has the
+  outside id. The tests apply the environment's per-cell ids to the reference.
+- The reference counts cars that are off the road at cell (0, 0), which is never
+  road and only falls inside a window from vision 6 on medium and 4 on hard.
+- The reference's instructions give medium a maximum add_rate of 0.02, below its
+  minimum of 0.05, which disables its curriculum; the default follows Table 4.
+- The paper's text gives medium 20 cars, easy two routes per arrival point and
+  medium two junctions; Table 4 and the reference give 10 cars and one of each,
+  which the defaults follow.
 """
 
 from types import SimpleNamespace

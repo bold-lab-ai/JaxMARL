@@ -8,7 +8,7 @@ A JAX implementation of the grid Predator-Prey task from [Learning when to Commu
   <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="Predator-Prey" width="300">
 </p>
 
-A successful episode of CommNet agents trained on the medium setting, catching the prey (yellow).
+A successful episode of trained agents on the medium setting, catching the prey (yellow).
 
 This is a different task from `JaxRobotarium_predator_prey`, which is continuous-space.
 
@@ -68,7 +68,34 @@ for _ in range(10):
     obs, state, reward, done, info = env.step(key_step, state, actions)
 ```
 
-`init_render` and `update_render` draw the grid with matplotlib, for use with `jaxmarl.viz.visualizer.Visualizer`.
+## Visualisation
+
+`init_render` and `update_render` draw the environment with matplotlib, for use with `Visualizer`:
+
+```python
+import jax
+from jaxmarl import make
+from jaxmarl.viz.visualizer import Visualizer
+
+key = jax.random.PRNGKey(0)
+env = make("predator_prey_grid", num_agents=5, dim=10, vision=1, max_steps=40)
+
+key, key_reset = jax.random.split(key)
+obs, state = env.reset(key_reset)
+state_seq = [state]
+for _ in range(40):
+    key, key_act, key_step = jax.random.split(key, 3)
+    key_act = jax.random.split(key_act, env.num_agents)
+    actions = {
+        agent: env.action_space(agent).sample(key_act[i])
+        for i, agent in enumerate(env.agents)
+    }
+    obs, state, reward, done, info = env.step(key_step, state, actions)
+    state_seq.append(state)
+
+viz = Visualizer(env, state_seq)
+viz.animate(save_fname="predator_prey.gif", view=False)
+```
 
 ## Performance
 
@@ -82,22 +109,13 @@ Environment steps per second (one step of all predators, including every predato
 
 Medium and hard observations have 936 and 3,636 entries per predator. Medium throughput peaks at 1,024 environments and falls by a quarter at 8,192; hard throughput barely grows beyond 128.
 
-## Baseline results
+## Baselines
 
-IPPO and MAPPO (`baselines/IPPO/ippo_rnn.py`, `baselines/MAPPO/mappo_rnn.py`) on the paper's medium setting in mixed mode, 20 seeds of 2e7 environment steps each, with the configs `ippo_rnn_predator_prey_grid.yaml` and `mappo_homogenous_rnn_predator_prey_grid.yaml`. Values are the mean ± standard deviation over seeds of the final greedy test episodes, averaged over the test episodes that end within the scripts' test rollout. Wall times include compilation.
-
-| Algorithm | Return | Success rate | Episode length | Wall time (L40S, 20 seeds) |
-| --- | --- | --- | --- | --- |
-| IPPO | -0.79 ± 0.03 | 0.92 ± 0.03 | 26.2 ± 0.8 | 21 min |
-| MAPPO | -0.80 ± 0.03 | 0.80 ± 0.04 | 26.1 ± 1.4 | 93 min |
-
-The IC3Net paper reports 28.0 steps to reach the prey for independent agents without communication (IC) and 13.1 for CommNet. IPPO's episode length levels off early at about the IC level; MAPPO is still improving at 2e7 steps. MAPPO's 20 seeds don't fit in an L40S's 48 GB at once, so they were run as four batches of five, and its wall time is the sum; with JAX 0.5 or later, `NUM_SEEDS=5` runs the first of these batches.
-
-The tables come from a script that calls the same `make_train` and saves each seed's test metrics. To log the scripts' metrics to Weights & Biases, which these configs disable, set `WANDB_MODE`, and `WANDB_LOG_ALL_SEEDS` to log each seed separately:
+IPPO and MAPPO configurations for the paper's medium setting, in mixed mode, are in [`ippo_rnn_predator_prey_grid.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/IPPO/config/ippo_rnn_predator_prey_grid.yaml) and [`mappo_homogenous_rnn_predator_prey_grid.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/MAPPO/config/mappo_homogenous_rnn_predator_prey_grid.yaml):
 
 ```bash
-python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid NUM_SEEDS=20 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
-python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_prey_grid NUM_SEEDS=5 WANDB_MODE=online +WANDB_LOG_ALL_SEEDS=True
+python baselines/IPPO/ippo_rnn.py --config-name ippo_rnn_predator_prey_grid
+python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_prey_grid
 ```
 
 ## Correspondence with the reference implementation
@@ -105,11 +123,10 @@ python baselines/MAPPO/mappo_rnn.py --config-name mappo_homogenous_rnn_predator_
 `tests/predator_prey_grid/test_predator_prey_grid.py` steps this environment and the reference side by side, for each mode and the three paper settings, and checks that observations, rewards, `reached_prey` and termination agree at every step, and success outside `competitive` mode. Differences from the reference:
 
 - The time limit is part of the environment; the reference leaves it to the training loop.
-- Observations are flat vectors, like those of the other JaxMARL environments, so they work with the standard IPPO and MAPPO baselines. They are the reference's `(2v+1, 2v+1, vocab)` observations flattened in that order. The reference also declares its space as `(vocab, 2v+1, 2v+1)` with `high=1`, but returns `(2v+1, 2v+1, vocab)` arrays with counts up to `num_agents`.
+- Observations are flat vectors, like those of the other JaxMARL environments: the reference's `(2v+1, 2v+1, vocab)` observations flattened in that order.
 - The reference's moving prey and prey agents (`--moving_prey`, `--enemy_comm`) are not implemented. The reference itself raises `NotImplementedError` for a moving prey.
 - The paper's prose gives a mixed-mode reward of `0.05` on the prey; its reward formula (with `λ = 0` in mixed mode) and the reference code give `0`. This follows the code.
 - `info["success"]` is also reported in `competitive` mode.
-- With `vision` at least `dim`, the reference refuses moves right and down, because it checks them against its padded grid; here predators move normally.
 
 ## Citation
 
