@@ -484,7 +484,7 @@ def make_train(config, env):
                     qmix_target = (
                         minibatch.rewards["__all__"][:-1]
                         + (
-                            1 - minibatch.dones["__all__"][:-1]
+                            1 - minibatch.dones["__all__"][1:]
                         )  # use next done because last done was saved for rnn re-init
                         * config["GAMMA"]
                         * qmix_next[1:]  # sum over agents
