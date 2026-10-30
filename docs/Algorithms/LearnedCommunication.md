@@ -101,16 +101,16 @@ Predator-Prey steps to reach the prey:
 | CommNet | 9.4 ± 0.1 [9.3, 9.4] | 9.1 ± 0.1 | 14.4 ± 1.5 [13.9, 15.2] | 13.1 ± 0.01 | 76.5 ± 1.9 [75.7, 77.3] | 76.5 ± 1.3 |
 | IC3Net | 10.2 ± 2.2 [9.3, 11.2] | 8.9 ± 0.02 | 16.7 ± 2.1 [15.9, 17.7] | 13.0 ± 0.02 | 64.3 ± 7.4 [61.1, 67.4] | 52.4 ± 3.4 |
 
-- On the easy versions, communication raises Traffic Junction success from 28% to 87–89% and nearly halves the steps to the prey, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper, and CommNet and IC3Net fall 4–6 points short on Traffic Junction; one CommNet seed stays at 28%. IC and IRIC end with the same easy Traffic Junction success because both converge to near-deterministic policies, and runs with the same seed get the same car arrivals.
+- On the easy versions, communication raises Traffic Junction success from 28% to 87–89% and nearly halves the steps to the prey, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper; on Traffic Junction their success barely changes during training (28% from the start), so the match there reflects car arrivals more than learning. CommNet and IC3Net fall 4–6 points short on Traffic Junction; one CommNet seed stays at 28%. IC and IRIC end with the same easy Traffic Junction success because both converge to near-deterministic policies, and runs with the same seed get the same car arrivals.
 - On medium Traffic Junction, IC3Net exceeds the paper, with all 20 seeds at 79–98% success, while 19 CommNet seeds stay at 2.4–4.0%, the level without communication.
-- On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper. With three times as many episodes per update (`alg.NUM_ENVS=600`) and twice as many updates, 4 seeds of CommNet take 13.2 ± 0.1 [13.2, 13.3] steps after the first 10,000 updates, near the paper's 13.1, but 4 seeds of IC3Net take 15.8 ± 0.6 [15.4, 16.4].
+- On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper. In a run with three times as many episodes per update (`alg.NUM_ENVS=600`) for 20,000 updates, on an earlier version of `ic3net.py`, 4 seeds of CommNet end at 13.08 ± 0.03 steps, the paper's 13.1, but 4 seeds of IC3Net end at 15.08 ± 0.91.
 - On hard Traffic Junction, all four methods fall well short of the paper. IC3Net still leads, but five of its seeds end at 13–17% success, the level without communication.
 - On hard Predator-Prey, IC, IRIC and CommNet match the paper, taking 75–77 of the 80 allowed steps. IC3Net is the only method that improves much, as in the paper, but takes 64 steps against the paper's 52.
-- For comparison, IPPO and MAPPO on the same medium environments (see the environments' READMEs) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey, after 2e7 steps.
+- For comparison, IPPO and MAPPO on the same medium environments (see the environments' READMEs) reach 3–5% success on Traffic Junction and take 26 steps on Predator-Prey, after 2e7 steps. Those are greedy test episodes, while the results here are training episodes.
 
 ### With the curriculum
 
-The same 20 seeds of each method trained on Traffic Junction with the paper's curriculum restored, using `ic3net.py` as of commit ad60bb9. Every run had reached the fixed `add_rate` by the end, so the success (%) below is on the same task as above:
+The same 20 seeds of each method trained on Traffic Junction with the paper's curriculum restored, using `ic3net.py` and its configurations as of commit 2b0f64b, with the settings above: `LSTM=True alg.LR=0.003`, and on hard also `+alg.ENV_KWARGS.max_steps=60 alg.NUM_ENVS=133 alg.NUM_STEPS=60 alg.TOTAL_TIMESTEPS=1.596e8`. Every run had reached the fixed `add_rate` by the end, so the success (%) below is on the same task as above:
 
 | Method | Easy | Medium | Hard |
 | --- | --- | --- | --- |
@@ -119,7 +119,7 @@ The same 20 seeds of each method trained on Traffic Junction with the paper's cu
 | CommNet | 89.5 ± 8.4 [85.9, 93.0] | 21.7 ± 27.4 [10.9, 34.1] | 12.0 ± 4.7 [9.9, 13.9] |
 | IC3Net | 89.7 ± 6.6 [86.7, 92.4] | 79.8 ± 16.1 [72.4, 86.1] | 35.5 ± 21.5 [26.6, 44.7] |
 
-The curriculum doesn't close the gaps to the paper. It helps CommNet on medium, though its mean stays below the paper's 54.3, and lowers IC3Net on medium and hard.
+The curriculum doesn't close the gaps to the paper. Only two changes are larger than the confidence intervals: on medium, it lowers IC3Net from 92.8 to 79.8, and raises IC from 3.3 to 12.9, above the paper's 3.4. CommNet on medium (6.4 to 21.7) and IC3Net on hard (49.7 to 35.5) change within overlapping intervals.
 
 ### MPE Simple Reference
 
@@ -132,7 +132,7 @@ The curriculum doesn't close the gaps to the paper. It helps CommNet on medium, 
 | CommNet | -19.3 ± 3.5 [-20.8, -17.9] |
 | IC3Net | -17.6 ± 5.7 [-20.0, -15.2] |
 
-Learned communication doesn't help here: IC and IRIC can already communicate through the environment's message actions. A few seeds of IRIC, CommNet and IC3Net end near -26, where training starts, and all four methods were still improving at the end.
+CommNet and IC3Net end lower on average because some of their seeds don't learn: 3 CommNet seeds, 5 IC3Net seeds and 1 IRIC seed end near -26, where training starts, against none of IC's. IC3Net's best seeds (-10.7) end above IC's best (-12.1). All four methods were still improving at the end, and the configuration isn't tuned for this environment.
 
 ### MPE with padding and continuous actions
 
@@ -160,7 +160,7 @@ Wall time for 20 seeds on one L40S, including compilation, with `SEED_CHUNK=10` 
 
 Speaker-Listener takes 5–6 minutes and continuous Simple Spread 7.5–9.
 
-These commands train the same seeds, for each `BASELINE`, and print the statistics of the tables. On a GPU, XLA's default kernels aren't deterministic, so two runs with the same seed drift apart; `XLA_FLAGS=--xla_gpu_deterministic_ops=true` makes them identical.
+These commands train the same seeds, for each `BASELINE`, and print the statistics of the tables. The tables were produced with XLA's default GPU kernels, which aren't deterministic, so a rerun with the same seeds ends with different per-seed results. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` makes reruns identical: two runs of 4 seeds of medium Traffic Junction for 200 updates had identical losses with it and diverged within the first 100 updates without it.
 
 ```bash
 python baselines/learned-communication/ic3net.py +alg=ic3net_traffic_junction_medium BASELINE=ic3net NUM_SEEDS=20 SEED_CHUNK=10
