@@ -530,7 +530,9 @@ def main(config):
             v = final[k]
             boot = np.random.default_rng(0).choice(v, (10000, len(v))).mean(1)
             lo, hi = np.percentile(boot, [2.5, 97.5])
-            print(f"{k}: {v.mean():.3f} +- {v.std(ddof=1):.3f} (95% CI {lo:.3f} to {hi:.3f})")
+            print(
+                f"{k}: {v.mean():.3f} +- {v.std(ddof=1):.3f} (95% CI {lo:.3f} to {hi:.3f})"
+            )
         elif k in final:
             print(f"{k}: {final[k].mean():.3f}")
 

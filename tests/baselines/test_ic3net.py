@@ -482,8 +482,12 @@ def test_padding_pads_observations_and_masks_actions():
     assert traj.obs.shape[-2:] == (2, 11 + 2)
     speaker, listener = traj.obs[..., 0, :], traj.obs[..., 1, :]
     assert np.all(speaker[..., 3:11] == 0) and np.any(speaker[..., :3] != 0)
-    np.testing.assert_array_equal(speaker[..., 11:], np.broadcast_to([1, 0], speaker[..., 11:].shape))
-    np.testing.assert_array_equal(listener[..., 11:], np.broadcast_to([0, 1], listener[..., 11:].shape))
+    np.testing.assert_array_equal(
+        speaker[..., 11:], np.broadcast_to([1, 0], speaker[..., 11:].shape)
+    )
+    np.testing.assert_array_equal(
+        listener[..., 11:], np.broadcast_to([0, 1], listener[..., 11:].shape)
+    )
     # The speaker never takes the listener's extra actions, which the nearly
     # uniform initial policy would otherwise pick 40% of the time.
     assert traj.action[..., 0].max() < 3 and traj.action[..., 1].max() >= 3
@@ -494,8 +498,12 @@ def test_padding_pads_observations_and_masks_actions():
     log_prob, entropy = learner.log_prob_entropy(logits, action)
     for i, n in enumerate([3, 5]):
         own = jax.nn.log_softmax(logits[:, i, :n])
-        np.testing.assert_allclose(log_prob[:, i], own[jnp.arange(4), action[:, i]], rtol=1e-6)
-        np.testing.assert_allclose(entropy[:, i], -(jnp.exp(own) * own).sum(-1), rtol=1e-5)
+        np.testing.assert_allclose(
+            log_prob[:, i], own[jnp.arange(4), action[:, i]], rtol=1e-6
+        )
+        np.testing.assert_allclose(
+            entropy[:, i], -(jnp.exp(own) * own).sum(-1), rtol=1e-5
+        )
 
 
 def _continuous_config(baseline, **overrides):
@@ -510,7 +518,9 @@ def _continuous_config(baseline, **overrides):
 def test_continuous_actions_map_onto_the_space_as_the_reference():
     # The reference's `translate_action`: scale, clip to [-1, 1], then map onto
     # [low, high], here [0, 1].
-    learner = ic3net.make_learner(_continuous_config("commnet", NUM_ENVS=1, ACTION_SCALE=2.0))
+    learner = ic3net.make_learner(
+        _continuous_config("commnet", NUM_ENVS=1, ACTION_SCALE=2.0)
+    )
     raw = jnp.broadcast_to(jnp.array([-1.0, 0.0, 0.3, 0.6, 2.0]), (1, 3, 5))
     actions = learner.env_actions(raw)
     for a in actions.values():
