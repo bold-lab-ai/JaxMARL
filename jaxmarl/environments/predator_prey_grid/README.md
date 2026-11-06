@@ -8,7 +8,7 @@ A JAX implementation of the grid Predator-Prey task from [Learning when to Commu
   <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="Predator-Prey" width="300">
 </p>
 
-A successful episode of trained agents on the medium setting, catching the prey (yellow).
+A successful episode on the medium setting, by predators trained with CommNet, catching the prey (yellow).
 
 This is a different task from `JaxRobotarium_predator_prey`, which is continuous-space.
 

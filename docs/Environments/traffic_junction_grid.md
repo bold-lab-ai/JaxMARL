@@ -8,7 +8,7 @@ Cars enter at the ends of the roads, follow a fixed route through one or more ju
   <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="Traffic Junction" width="300">
 </p>
 
-A successful episode of trained agents on the medium version.
+A successful episode on the medium version, by agents trained with IC3Net.
 
 ## Observation, action space and reward
 
