@@ -115,7 +115,7 @@ MPE episode return (higher is better), which the paper doesn't report:
 
 Communication doesn't help on these tasks with these settings: CommNet scores below IC, and IC3Net is no better than IC. Trained for three times as long (`TOTAL_TIMESTEPS=2.4e8`), CommNet stays below IC on Speaker-Listener and Simple Spread and is no longer clearly below it on Simple Reference.
 
-These results aren't compared with IPPO and MAPPO, which report greedy test episodes, while `ic3net.py` reports training episodes. IPPO and MAPPO results on medium Traffic Junction and Predator-Prey are in the environments' READMEs.
+These results aren't compared with IPPO and MAPPO: their scripts report success and episode length only for greedy test episodes, while `ic3net.py` reports training episodes. IPPO and MAPPO configurations for medium Traffic Junction and Predator-Prey are in the environments' READMEs.
 
 Each table cell is printed by the script, for example:
 
