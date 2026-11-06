@@ -52,7 +52,7 @@ Take a look at [`config.yaml`](https://github.com/FLAIROx/JaxMARL/tree/main/base
 | Key | Meaning |
 | --- | --- |
 | `BASELINE` | `ic`, `iric`, `commnet` or `ic3net` |
-| `MEAN_RATIO` | Weight of the team's mean return in each agent's return. By default 1 for `ic` and `commnet` and 0 for `iric` and `ic3net`, as in the reference |
+| `MEAN_RATIO` | Weight of the team's mean return in each agent's return. By default 1 for `ic` and `commnet` and 0 for `iric` and `ic3net`, as in the reference. See [Results](#-results) for CommNet with 0 |
 | `NUM_ENVS`, `NUM_STEPS` | Each update runs `NUM_ENVS` episodes from reset for `NUM_STEPS` steps; steps after an episode ends are ignored |
 | `COMM_PASSES` | Communication rounds per step |
 | `COMM_ACTION_ONE` | IC3Net agents always communicate; the reference sets it for Traffic Junction |
@@ -88,33 +88,34 @@ Traffic Junction success (%):
 | IC | 28.2 ± 0.1 [28.1, 28.2] | 30.2 ± 0.4 | 3.3 ± 0.2 [3.2, 3.4] | 3.4 ± 0.5 | 14.1 ± 2.0 [13.2, 14.9] | 47.0 ± 2.9 |
 | IRIC | 28.2 ± 0.1 [28.1, 28.2] | 29.8 ± 0.7 | 3.4 ± 0.1 [3.4, 3.4] | 3.4 ± 0.5 | 16.3 ± 0.2 [16.2, 16.4] | 35.0 ± 0.6 |
 | CommNet | 89.4 ± 15.7 [81.8, 94.5] | 93.0 ± 4.2 | 6.4 ± 13.2 [3.3, 12.3] | 54.3 ± 14.2 | 9.0 ± 5.0 [6.8, 11.2] | 50.2 ± 3.5 |
-| IC3Net | 86.6 ± 5.9 [84.0, 89.0] | 93.0 ± 3.7 | 92.8 ± 5.1 [90.5, 94.8] | 89.3 ± 2.5 | 49.7 ± 24.2 [38.9, 59.9] | 72.4 ± 9.6 |
+| CommNet, `MEAN_RATIO=0`, medium and hard only | | | 94.9 ± 3.2 [93.4, 96.2] | | 71.8 ± 13.8 [64.8, 76.1] | |
+| IC3Net | 85.5 ± 7.0 [82.5, 88.5] | 93.0 ± 3.7 | 90.6 ± 7.7 [87.1, 93.7] | 89.3 ± 2.5 | 58.1 ± 16.6 [50.6, 64.6] | 72.4 ± 9.6 |
 
-Predator-Prey steps to reach the prey:
+Predator-Prey episode length, capped at 20, 40 and 80 steps (lower is better):
 
 | Method | Easy | Paper | Medium | Paper | Hard | Paper |
 | --- | --- | --- | --- | --- | --- | --- |
 | IC | 16.4 ± 0.4 [16.2, 16.5] | 16.4 ± 0.49 | 27.7 ± 0.7 [27.4, 28.0] | 28.0 ± 0.74 | 76.1 ± 1.7 [75.4, 76.8] | 77.4 ± 0.8 |
 | IRIC | 16.4 ± 0.6 [16.1, 16.6] | 16.5 ± 0.1 | 28.2 ± 0.4 [28.0, 28.4] | 28.1 ± 0.2 | 75.3 ± 1.5 [74.7, 75.9] | 75.0 ± 1.4 |
 | CommNet | 9.4 ± 0.1 [9.3, 9.4] | 9.1 ± 0.1 | 14.4 ± 1.5 [13.9, 15.2] | 13.1 ± 0.01 | 76.5 ± 1.9 [75.7, 77.3] | 76.5 ± 1.3 |
-| IC3Net | 10.2 ± 2.2 [9.3, 11.2] | 8.9 ± 0.02 | 16.7 ± 2.1 [15.9, 17.7] | 13.0 ± 0.02 | 64.3 ± 7.4 [61.1, 67.4] | 52.4 ± 3.4 |
+| IC3Net | 9.4 ± 0.1 [9.3, 9.5] | 8.9 ± 0.02 | 16.7 ± 2.1 [15.9, 17.7] | 13.0 ± 0.02 | 66.2 ± 4.9 [64.0, 68.2] | 52.4 ± 3.4 |
 
-- On the easy versions, communication raises Traffic Junction success from 28% to 87–89% and nearly halves the steps to the prey, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper; their Traffic Junction success barely changes during training.
-- On medium Traffic Junction, IC3Net exceeds the paper, while 19 of the 20 CommNet seeds stay at the level without communication. On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper.
-- On hard Traffic Junction, all four methods fall short of the paper. On hard Predator-Prey, IC, IRIC and CommNet match the paper, and IC3Net improves the most, as in the paper, but takes 64 steps against its 52.
+- On the easy versions, communication raises Traffic Junction success from 28% to 85–89% and nearly halves Predator-Prey episodes, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper; their Traffic Junction success barely changes during training.
+- On medium Traffic Junction, IC3Net exceeds the paper, while 19 of the 20 CommNet seeds stay at the level without communication. CommNet trained on each agent's own return (`MEAN_RATIO=0`), as IC3Net is, reaches 50% on all 20 seeds; the reference trains CommNet on the team's return. On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper.
+- On hard Traffic Junction, all four methods fall short of the paper at their defaults; CommNet with `MEAN_RATIO=0` reaches 71.8%, above the paper's CommNet. On hard Predator-Prey, IC, IRIC and CommNet match the paper, and IC3Net improves the most, as in the paper, but takes 66 steps against its 52.
 
 MPE episode return (higher is better), which the paper doesn't report:
 
 | Method | Simple Reference | Speaker-Listener (`PAD_SPACES`) | Simple Spread, continuous |
 | --- | --- | --- | --- |
-| IC | -15.8 ± 1.6 [-16.5, -15.1] | -9.0 ± 2.0 [-9.9, -8.2] | -12.5 ± 0.5 [-12.7, -12.3] |
+| IC | -15.8 ± 1.6 [-16.5, -15.1] | -9.0 ± 2.0 [-9.9, -8.2] | -12.4 ± 0.5 [-12.6, -12.2] |
 | IRIC | -14.8 ± 3.1 [-16.3, -13.6] | -9.0 ± 2.0 [-9.9, -8.2] | -12.6 ± 0.6 [-12.8, -12.3] |
 | CommNet | -19.3 ± 3.5 [-20.8, -17.9] | -23.5 ± 12.5 [-28.6, -18.1] | -18.0 ± 2.1 [-19.0, -17.2] |
-| IC3Net | -17.6 ± 5.7 [-20.0, -15.2] | -11.4 ± 7.9 [-15.1, -8.6] | -12.6 ± 0.5 [-12.8, -12.4] |
+| IC3Net | -18.6 ± 5.9 [-21.1, -16.2] | -11.4 ± 7.9 [-15.1, -8.6] | -12.6 ± 0.5 [-12.8, -12.4] |
 
-Every method improves on all three tasks, but some seeds, mostly of CommNet and IC3Net, end near where training starts, and all four were still improving at the end.
+Communication doesn't help on these tasks with these settings: CommNet scores below IC, and IC3Net is no better than IC. Trained for three times as long (`TOTAL_TIMESTEPS=2.4e8`), CommNet stays below IC on Speaker-Listener and Simple Spread and is no longer clearly below it on Simple Reference.
 
-These results aren't compared with IPPO and MAPPO. IPPO and MAPPO have configurations for medium Traffic Junction and Predator-Prey (see the environments' READMEs) and for discrete MPE Simple Spread, but they report greedy test episodes, while `ic3net.py` reports training episodes, and a comparison at a matched budget and metric hasn't been run.
+These results aren't compared with IPPO and MAPPO, which report greedy test episodes, while `ic3net.py` reports training episodes. IPPO and MAPPO results on medium Traffic Junction and Predator-Prey are in the environments' READMEs.
 
 Each table cell is printed by the script, for example:
 
