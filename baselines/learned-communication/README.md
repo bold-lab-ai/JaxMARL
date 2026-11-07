@@ -81,15 +81,18 @@ No other JaxMARL baseline trains with a curriculum, so Traffic Junction trains a
 
 All four methods with the configurations above, 20 seeds each, trained for 20,000 updates of 8,000 simulated steps on Traffic Junction (the paper's 2,000 epochs) and 10,000 on Predator-Prey (the paper's 1,000) and MPE. Values are the mean ± sample standard deviation over seeds of the training episodes in the last 2% of updates, followed by the bootstrap 95% confidence interval of the mean. The paper's values are over 5 runs.
 
-Traffic Junction success (%):
+Traffic Junction success (%). The Paper columns give the paper's Table 1 values, except in the numbered cells: there the reference code doesn't reach the paper's value either, so they give the reference code's value instead (see [Comparison with the reference code](#comparison-with-the-reference-code)), and the note gives the paper's.
 
 | Method | Easy | Paper | Medium | Paper | Hard | Paper |
 | --- | --- | --- | --- | --- | --- | --- |
-| IC | 28.2 ± 0.1 [28.1, 28.2] | 30.2 ± 0.4 | 3.3 ± 0.2 [3.2, 3.4] | 3.4 ± 0.5 | 14.1 ± 2.0 [13.2, 14.9] | 47.0 ± 2.9 |
-| IRIC | 28.2 ± 0.1 [28.1, 28.2] | 29.8 ± 0.7 | 3.4 ± 0.1 [3.4, 3.4] | 3.4 ± 0.5 | 16.3 ± 0.2 [16.2, 16.4] | 35.0 ± 0.6 |
-| CommNet | 89.4 ± 15.7 [81.8, 94.5] | 93.0 ± 4.2 | 6.4 ± 13.2 [3.3, 12.3] | 54.3 ± 14.2 | 9.0 ± 5.0 [6.8, 11.2] | 50.2 ± 3.5 |
+| IC | 28.2 ± 0.1 [28.1, 28.2] | 30.2 ± 0.4 | 3.3 ± 0.2 [3.2, 3.4] | 3.4 ± 0.5 | 14.1 ± 2.0 [13.2, 14.9] | 13.6 ± 2.2² |
+| IRIC | 28.2 ± 0.1 [28.1, 28.2] | 29.8 ± 0.7 | 3.4 ± 0.1 [3.4, 3.4] | 3.4 ± 0.5 | 16.3 ± 0.2 [16.2, 16.4] | 16.6 ± 0.2² |
+| CommNet | 89.4 ± 15.7 [81.8, 94.5] | 93.0 ± 4.2 | 6.4 ± 13.2 [3.3, 12.3] | 13.4 ± 17.3¹ | 9.0 ± 5.0 [6.8, 11.2] | 8.3 ± 7.3² |
 | CommNet, `MEAN_RATIO=0`, medium and hard only | | | 94.9 ± 3.2 [93.4, 96.2] | | 71.8 ± 13.8 [64.8, 76.1] | |
-| IC3Net | 85.5 ± 7.0 [82.5, 88.5] | 93.0 ± 3.7 | 90.6 ± 7.7 [87.1, 93.7] | 89.3 ± 2.5 | 58.1 ± 16.6 [50.6, 64.6] | 72.4 ± 9.6 |
+| IC3Net | 85.5 ± 7.0 [82.5, 88.5] | 93.0 ± 3.7 | 90.6 ± 7.7 [87.1, 93.7] | 89.3 ± 2.5 | 58.1 ± 16.6 [50.6, 64.6] | 37.2 ± 21.6² |
+
+1. The reference code with the paper's curriculum, trained for 1,000 epochs. The paper reports 54.3 ± 14.2.
+2. The reference code at the same settings, trained for 1,000 epochs. The paper reports 47.0 ± 2.9, 35.0 ± 0.6, 50.2 ± 3.5 and 72.4 ± 9.6.
 
 Predator-Prey episode length, capped at 20, 40 and 80 steps (lower is better):
 
@@ -101,8 +104,30 @@ Predator-Prey episode length, capped at 20, 40 and 80 steps (lower is better):
 | IC3Net | 9.4 ± 0.1 [9.3, 9.5] | 8.9 ± 0.02 | 16.7 ± 2.1 [15.9, 17.7] | 13.0 ± 0.02 | 66.2 ± 4.9 [64.0, 68.2] | 52.4 ± 3.4 |
 
 - On the easy versions, communication raises Traffic Junction success from 28% to 85–89% and nearly halves Predator-Prey episodes, as in the paper. IC and IRIC come within 2 points of success and 0.1 steps of the paper; their Traffic Junction success barely changes during training.
-- On medium Traffic Junction, IC3Net exceeds the paper, while 19 of the 20 CommNet seeds stay at the level without communication. CommNet trained on each agent's own return (`MEAN_RATIO=0`), as IC3Net is, reaches 50% on all 20 seeds; the reference trains CommNet on the team's return. On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper.
-- On hard Traffic Junction, all four methods fall short of the paper at their defaults; CommNet with `MEAN_RATIO=0` reaches 71.8%, above the paper's CommNet. On hard Predator-Prey, IC, IRIC and CommNet match the paper, and IC3Net improves the most, as in the paper, but takes 66 steps against its 52.
+- On medium Traffic Junction, IC3Net exceeds the paper, while 19 of the 20 CommNet seeds stay at the level without communication. The reference code doesn't reach the paper's CommNet either: with the paper's curriculum, it gets 13.4. CommNet trained on each agent's own return (`MEAN_RATIO=0`), as IC3Net is, reaches 50% on all 20 seeds; the reference trains CommNet on the team's return. On medium Predator-Prey, CommNet and IC3Net take 1–4 more steps than in the paper.
+- On hard Traffic Junction, neither this code nor the reference code reaches the paper's values at the paper's settings. This code is within 1.1 points of the reference code for IC, IRIC and CommNet, and above it for IC3Net. Cars can't see each other, so IC and IRIC score what cars that never brake score. CommNet with `MEAN_RATIO=0` reaches 71.8%, above the paper's CommNet. On hard Predator-Prey, IC, IRIC and CommNet match the paper, and IC3Net improves the most, as in the paper, but takes 66 steps against its 52.
+
+### Comparison with the reference code
+
+The [reference code](https://github.com/IC3Net/IC3Net), run with the edits current PyTorch needs, and this code trained Traffic Junction with identical settings for 1,000 epochs, half the paper's budget. Values are success (%), as the mean ± standard deviation over seeds of the last 2% of epochs.
+
+Medium, CommNet, with the paper's curriculum and the team's return:
+
+| Learning rate | Reference code (5 seeds) | This code (20 seeds) |
+| --- | --- | --- |
+| 0.003 | 13.4 ± 17.3 | 11.7 ± 19.8 |
+| 0.001 | 9.2 ± 11.0 | 9.5 ± 16.2 |
+
+Hard, at the paper's settings (`add_rate` 0.05, 60 steps), with no curriculum and a learning rate of 0.003. The last column is this code minus the reference, with a bootstrap 95% confidence interval:
+
+| Method | Reference code (5 seeds) | This code (20 seeds) | Difference |
+| --- | --- | --- | --- |
+| IC | 13.6 ± 2.2 | 13.7 ± 4.2 | +0.1 [-2.4, 2.6] |
+| IRIC | 16.6 ± 0.2 | 16.3 ± 0.3 | -0.4 [-0.5, -0.2] |
+| CommNet | 8.3 ± 7.3 | 9.5 ± 5.9 | +1.1 [-5.1, 7.2] |
+| IC3Net | 37.2 ± 21.6 | 55.3 ± 17.8 | +18.1 [-0.3, 36.6] |
+
+IRIC's seeds barely vary in either code, so the 0.4-point gap is outside the interval. IC3Net's reference seeds split: two reach 56.8 and 61.9, and three stay between 16.2 and 34.3.
 
 MPE episode return (higher is better), which the paper doesn't report:
 
