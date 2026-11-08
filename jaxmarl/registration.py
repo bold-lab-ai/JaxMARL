@@ -13,6 +13,7 @@ from .environments import (
     MultiAgentEnv,
     Overcooked,
     OvercookedV2,
+    PredatorPreyGrid,
     SimpleAdversaryMPE,
     SimpleCryptoMPE,
     SimpleFacmacMPE,
@@ -27,6 +28,7 @@ from .environments import (
     SimpleTagMPE,
     SimpleWorldCommMPE,
     SwitchRiddle,
+    TrafficJunctionGrid,
 )
 
 # MABrax requires brax, an optional dependency
@@ -143,7 +145,13 @@ def make(env_id: str, **env_kwargs) -> MultiAgentEnv:
     elif env_id == "jaxnav":
         env = JaxNav(**env_kwargs)
 
-    # 10. JaxRobotarium Environments
+    # 10. Grid Traffic Junction and Predator-Prey (CommNet / IC3Net)
+    elif env_id == "traffic_junction_grid":
+        env = TrafficJunctionGrid(**env_kwargs)
+    elif env_id == "predator_prey_grid":
+        env = PredatorPreyGrid(**env_kwargs)
+
+    # 11. JaxRobotarium Environments
     if env_id.startswith("JaxRobotarium"):
         if not SUBMODULE_ENVIRONMENTS:
             raise ValueError(
@@ -200,6 +208,8 @@ registered_envs = [
     "overcooked_v2",
     "coin_game",
     "jaxnav",
+    "traffic_junction_grid",
+    "predator_prey_grid",
     "JaxRobotarium_navigation",
     "JaxRobotarium_discovery",
     "JaxRobotarium_material_transport",
