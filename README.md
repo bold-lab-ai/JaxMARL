@@ -33,6 +33,10 @@
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/jaxnav-ma.gif?raw=true" alt="jaxnav" width="20%">
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/smax.gif?raw=true" alt="SMAX" width="20%">
         </div>
+        <div class="row" align="centre">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="traffic_junction" width="20%">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="predator_prey" width="20%">
+        </div>
     </div>
 </div>
 
@@ -56,6 +60,8 @@ For more details, take a look at our [blog post](https://blog.foersterlab.com/ja
 | 🧭 JaxNav | [Paper](https://www.arxiv.org/abs/2408.15099) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/jaxmarl/environments/jaxnav) | 2D geometric navigation for differential drive robots
 | 🪙 Coin Game | [Paper](https://arxiv.org/abs/1802.09640) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/jaxmarl/environments/coin_game) | Two-player grid world environment which emulates social dilemmas
 | 💡 Switch Riddle | [Paper](https://proceedings.neurips.cc/paper_files/paper/2016/hash/c7635bfd99248a2cdef8249ef7bfbef4-Abstract.html) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/jaxmarl/environments/switch_riddle) | Simple cooperative communication game included for debugging
+| 🚦 Traffic Junction | [Paper](https://arxiv.org/abs/1812.09755) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/jaxmarl/environments/traffic_junction_grid) | Cars cross grid junctions without colliding; a standard learned-communication benchmark
+| 🐺 Grid Predator-Prey | [Paper](https://arxiv.org/abs/1812.09755) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/jaxmarl/environments/predator_prey_grid) | Predators with limited vision search a grid for a prey; a standard learned-communication benchmark
 | 🤖 JaxRobotarium | [Paper](https://arxiv.org/abs/2505.06771) | [Source](https://github.com/GT-STAR-Lab/JaxRobotarium) | Multi-robot environment with open access sim2real through the [Robotarium](https://www.robotarium.gatech.edu/)
 
 <h2 name="algorithms" id="algorithms">Baseline Algorithms 🦉 </h2>
@@ -72,6 +78,8 @@ We follow CleanRL's philosophy of providing single file implementations which ca
 | TransfQMIX | [Paper](https://www.southampton.ac.uk/~eg/AAMAS2023/pdfs/p1679.pdf) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/QLearning) |
 | SHAQ | [Paper](https://arxiv.org/abs/2105.15013) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/QLearning) |
 | PQN-VDN | [Paper](https://arxiv.org/abs/2407.04811) | [Source](https://github.com/mttga/purejaxql) |
+| CommNet | [Paper](https://arxiv.org/abs/1605.07736) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) |
+| IC3Net | [Paper](https://arxiv.org/abs/1812.09755) | [Source](https://github.com/FLAIROx/JaxMARL/tree/main/baselines/learned-communication) |
 
 <h2 name="install" id="install">Installation 🧗 </h2>
 

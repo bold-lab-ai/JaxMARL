@@ -19,9 +19,11 @@ from .mpe import (
 from .multi_agent_env import MultiAgentEnv, State
 from .overcooked import Overcooked, overcooked_layouts
 from .overcooked_v2 import OvercookedV2, overcooked_v2_layouts
+from .predator_prey_grid import PredatorPreyGrid
 from .smax import SMAX, HeuristicEnemySMAX, LearnedPolicyEnemySMAX
 from .storm import InTheGrid, InTheGrid_2p, InTheMatrix
 from .switch_riddle import SwitchRiddle
+from .traffic_junction_grid import TrafficJunctionGrid
 
 # MABrax requires brax, an optional dependency due to the deprecation: `pip install jaxmarl[mabrax]`
 try:
@@ -81,6 +83,7 @@ __all__ = [
     "overcooked_layouts",
     "OvercookedV2",
     "overcooked_v2_layouts",
+    "PredatorPreyGrid",
     "SMAX",
     "HeuristicEnemySMAX",
     "LearnedPolicyEnemySMAX",
@@ -88,6 +91,7 @@ __all__ = [
     "InTheGrid_2p",
     "InTheMatrix",
     "SwitchRiddle",
+    "TrafficJunctionGrid",
     "SUBMODULE_ENVIRONMENTS",
     # jaxrobotarium submodule (conditionally available)
     "RWARE",

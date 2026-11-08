@@ -15,6 +15,10 @@
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/jaxnav-ma.gif?raw=true" alt="jaxnav" width="20%">
             <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/smax.gif?raw=true" alt="SMAX" width="20%">
         </div>
+        <div class="row" align="centre">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/traffic_junction_grid.gif?raw=true" alt="traffic_junction" width="20%">
+            <img src="https://github.com/FLAIROx/JaxMARL/blob/main/docs/imgs/predator_prey_grid.gif?raw=true" alt="predator_prey" width="20%">
+        </div>
     </div>
 </div>
 
@@ -23,8 +27,8 @@ _**MARL but really really fast!**_
 JaxMARL combines ease-of-use with GPU-enabled efficiency, and supports a wide range of commonly used MARL environments as well as popular baseline algorithms. Our aim is for one library that enables thorough evaluation of MARL methods across a wide range of tasks and against relevant baselines. We also introduce SMAX, a vectorised, simplified version of the popular StarCraft Multi-Agent Challenge, which removes the need to run the StarCraft II game engine. 
 
 ## What we provide:
-* **11 MARL environments** fully implemented in JAX - these span cooperative, competitive, and mixed games; discrete and continuous state and action spaces; and zero-shot and CTDE settings.
-* **8 MARL algorithms**, also fully implemented in JAX - these include both Q-Learning and PPO based approaches.
+* **13 MARL environments** fully implemented in JAX - these span cooperative, competitive, and mixed games; discrete and continuous state and action spaces; and zero-shot and CTDE settings.
+* **10 MARL algorithms**, also fully implemented in JAX - these include Q-Learning and PPO based approaches, and learned communication.
 
 ## Who is JaxMARL for?
 Anyone doing research on or looking to use multi-agent reinforcment learning!
