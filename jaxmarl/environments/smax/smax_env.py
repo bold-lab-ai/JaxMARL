@@ -769,7 +769,8 @@ class SMAX(MultiAgentEnv):
             ),
             0.0,
         )
-        unit_weapon_cooldowns = state.unit_weapon_cooldowns + cooldown_diff
+        # floor at 0: otherwise non-attacking units count down without bound and the value leaks into obs/world state
+        unit_weapon_cooldowns = jnp.maximum(state.unit_weapon_cooldowns + cooldown_diff, 0.0)
         state = state.replace(
             unit_health=unit_health,
             unit_positions=pos,

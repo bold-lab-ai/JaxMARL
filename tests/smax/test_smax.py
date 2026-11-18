@@ -647,12 +647,12 @@ def test_world_state(do_jit):
 
         world_state = jnp.zeros((env.state_size,))
         world_state = world_state.at[0 : len(env.own_features)].set(
-            jnp.array([0.5, 8.0, 18.5, -0.5, 1, 0, 0, 0, 0, 0])
+            jnp.array([0.5, 8.0, 18.5, 0.0, 1, 0, 0, 0, 0, 0])
         )
         idx = env.num_allies * len(env.own_features)
         end_idx = idx + len(env.own_features)
         world_state = world_state.at[idx:end_idx].set(
-            jnp.array([0.5, 24.0, 13.5, -0.5, 1, 0, 0, 0, 0, 0])
+            jnp.array([0.5, 24.0, 13.5, 0.0, 1, 0, 0, 0, 0, 0])
         )
         idx = env.num_agents * len(env.own_features) + env.num_allies
         end_idx = idx + env.num_enemies
@@ -674,3 +674,16 @@ def test_episode_lasts_max_steps(max_steps):
         assert bool(dones["__all__"]) == (t == max_steps), (
             f"done={bool(dones['__all__'])} after {t} of {max_steps} steps"
         )
+
+
+@pytest.mark.parametrize("do_jit", [False, True])
+def test_weapon_cooldown_non_negative(do_jit):
+    # units that keep moving never attack; their cooldown must stay at 0 instead of counting down without bound
+    with jax.disable_jit(do_jit):
+        key = jax.random.PRNGKey(0)
+        env, _, state = create_env(key)
+        move = {agent: jnp.array(0) for agent in env.agents}
+        for _ in range(20):
+            key, key_step = jax.random.split(key)
+            _, state, _, _, _ = env.step_env(key_step, state, move)
+        assert jnp.all(state.unit_weapon_cooldowns >= 0.0)
