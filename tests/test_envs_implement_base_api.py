@@ -43,6 +43,8 @@ envs_to_test = [
     "overcooked_v2",
     "coin_game",
     "jaxnav",
+    "traffic_junction_grid",
+    "predator_prey_grid",
 ]
 
 submodule_envs = [

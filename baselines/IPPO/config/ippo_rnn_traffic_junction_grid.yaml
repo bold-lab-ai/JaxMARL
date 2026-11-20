@@ -1,0 +1,35 @@
+"LR": 5e-4
+"NUM_ENVS": 64
+"NUM_STEPS": 128
+"HIDDEN_SIZE": 128
+"TOTAL_TIMESTEPS": 2e7
+"UPDATE_EPOCHS": 4
+"NUM_MINIBATCHES": 2
+"GAMMA": 0.99
+"GAE_LAMBDA": 0.95
+"CLIP_EPS": 0.3
+"SCALE_CLIP_EPS": False
+"ENT_COEF": 0.01
+"VF_COEF": 1.0
+"MAX_GRAD_NORM": 0.5
+"ACTIVATION": "tanh"
+"ANNEAL_LR": True
+"SEED": 30
+"NUM_SEEDS": 1
+"SAVE_PATH": "baselines/IPPO/checkpoints"
+
+"ENV_NAME": "traffic_junction_grid"
+"ENV_KWARGS": {
+  "difficulty": "medium",
+}
+
+# evaluate
+"TEST_DURING_TRAINING": True
+"TEST_INTERVAL": 0.05 # as a fraction of updates, i.e. log every 5% of training process
+"TEST_NUM_STEPS": 128
+"NUM_TEST_ENVS": 64 # number of episodes to average over, can affect performance
+
+# WandB Params
+"WANDB_MODE": "disabled"
+"ENTITY": ""
+"PROJECT": ""
