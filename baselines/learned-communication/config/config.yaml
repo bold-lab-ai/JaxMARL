@@ -1,0 +1,18 @@
+# experiment params
+"BASELINE": "ic3net" # ic, iric, commnet or ic3net
+"MEAN_RATIO": null # weight of the team's mean return; null uses the baseline's (1 for ic and commnet, 0 for iric and ic3net)
+"NUM_SEEDS": 1 # number of vmapped seeds
+"SEED_CHUNK": null # train the seeds this many at a time, to fit in memory; null trains them all at once
+"LSTM": True # ic and iric use an LSTM, as in the paper; False gives the tanh RNN of the reference's commands. commnet and ic3net always use one
+"PAD_SPACES": False # pad observations to the largest agent's, followed by a one-hot agent id, and action spaces to the largest, masking each agent's extra actions
+"ACTION_SCALE": 1.0 # continuous actions: scale before clipping to [-1, 1] and mapping onto the action space, as in the reference
+"SEED": 0
+
+# wandb params
+"ENTITY": ""
+"PROJECT": ""
+"WANDB_MODE": "disabled"
+"WANDB_LOG_ALL_SEEDS": False # will log separately the vmapped seeds
+
+# where to save the params (if None, will not save)
+"SAVE_PATH": null

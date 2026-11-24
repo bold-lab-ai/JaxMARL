@@ -1,0 +1,21 @@
+"ENV_NAME": "MPE_simple_speaker_listener_v4"
+"ENV_KWARGS": {}
+
+# The speaker and the listener have different observations and actions, so
+# PAD_SPACES pads them to the same size, adds a one-hot agent id, and masks the
+# speaker's missing actions.
+"PAD_SPACES": True
+
+# Each update runs NUM_ENVS episodes of NUM_STEPS steps, the environment's time
+# limit: 8,000 simulated steps, as in the Predator-Prey configurations.
+"NUM_ENVS": 320
+"NUM_STEPS": 25
+"TOTAL_TIMESTEPS": 8e7 # simulated steps: 10,000 updates, as for Predator-Prey
+"HIDDEN_SIZE": 128
+"COMM_PASSES": 1
+"COMM_ACTION_ONE": False # ic3net agents choose when to talk
+"LR": 0.001 # the reference's default; not tuned for this environment
+"GAMMA": 1.0
+"VALUE_COEF": 0.01
+"ENT_COEF": 0.0
+"DETACH_GAP": 10 # steps of backpropagation through time

@@ -1,0 +1,20 @@
+"ENV_NAME": "MPE_simple_spread_v3"
+"ENV_KWARGS": {"action_type": "Continuous"}
+
+# Continuous actions: the policy is a Gaussian, as in the reference, and its
+# samples are clipped to [-1, 1] after ACTION_SCALE and mapped onto the action
+# space's bounds.
+
+# Each update runs NUM_ENVS episodes of NUM_STEPS steps, the environment's time
+# limit: 8,000 simulated steps, as in the Predator-Prey configurations.
+"NUM_ENVS": 320
+"NUM_STEPS": 25
+"TOTAL_TIMESTEPS": 8e7 # simulated steps: 10,000 updates, as for Predator-Prey
+"HIDDEN_SIZE": 128
+"COMM_PASSES": 1
+"COMM_ACTION_ONE": False # ic3net agents choose when to talk
+"LR": 0.001 # the reference's default; not tuned for this environment
+"GAMMA": 1.0
+"VALUE_COEF": 0.01
+"ENT_COEF": 0.0
+"DETACH_GAP": 10 # steps of backpropagation through time
