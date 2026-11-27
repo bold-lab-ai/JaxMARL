@@ -150,7 +150,7 @@ class UniformUnitTypeDistribution(Distribution):
         if self.n_enemies >= self.n_allies:
             enemy_unit_types = jnp.zeros((self.n_enemies,), dtype=jnp.uint8)
             enemy_unit_types = enemy_unit_types.at[: self.n_allies].set(ally_unit_types)
-            enemy_unit_types.at[self.n_allies :].set(
+            enemy_unit_types = enemy_unit_types.at[self.n_allies :].set(
                 jax.random.categorical(
                     enemy_key,
                     jnp.log(jnp.ones((self.n_unit_types)) / self.n_unit_types),
